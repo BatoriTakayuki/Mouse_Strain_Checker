@@ -1,0 +1,42 @@
+Validation date: 2026-10-18
+31 tests passed; 1 external-tool smoke test skipped (HISAT2/SAMtools unavailable).
+Real SRX accuracy, Docker build, and browser UI not validated in this environment.
+
+test_input_path_injection (test_checker.EnaTests.test_input_path_injection) ... ok
+test_species_guard (test_checker.EnaTests.test_species_guard) ... ok
+test_assembly_mismatch_rejected (test_checker.PanelAndIntegrationTests.test_assembly_mismatch_rejected) ... ok
+test_chr_prefix_aliases (test_checker.PanelAndIntegrationTests.test_chr_prefix_aliases) ... ok
+test_external_bam_assembly_must_be_explicit (test_checker.PanelAndIntegrationTests.test_external_bam_assembly_must_be_explicit) ... ok
+test_failed_rerun_invalidates_old_completion (test_checker.PanelAndIntegrationTests.test_failed_rerun_invalidates_old_completion) ... ok
+test_index_provenance_guard (test_checker.PanelAndIntegrationTests.test_index_provenance_guard) ... ok
+test_inference_regional_discordance_and_no_coverage (test_checker.PanelAndIntegrationTests.test_inference_regional_discordance_and_no_coverage) ... ok
+test_invalid_cli_accession_fails_before_any_output (test_checker.PanelAndIntegrationTests.test_invalid_cli_accession_fails_before_any_output) ... ERROR: Invalid experiment accession
+ok
+test_localized_reads_cannot_label_whole_chromosome (test_checker.PanelAndIntegrationTests.test_localized_reads_cannot_label_whole_chromosome) ... ok
+test_mapper_failure_not_hidden_by_successful_sort (test_checker.PanelAndIntegrationTests.test_mapper_failure_not_hidden_by_successful_sort) ... ok
+test_missing_low_fi_and_heterozygous_calls_not_reference (test_checker.PanelAndIntegrationTests.test_missing_low_fi_and_heterozygous_calls_not_reference) ... ok
+test_other_bases_and_insufficient_depth (test_checker.PanelAndIntegrationTests.test_other_bases_and_insufficient_depth) ... ok
+test_panel_provenance_and_bed_coordinates (test_checker.PanelAndIntegrationTests.test_panel_provenance_and_bed_coordinates) ... ok
+test_pileup_depth_limit_excluded (test_checker.PanelAndIntegrationTests.test_pileup_depth_limit_excluded) ... ok
+test_ref_mismatch_rejected (test_checker.PanelAndIntegrationTests.test_ref_mismatch_rejected) ... ok
+test_sra_accession_directory_and_fastq_paths (test_checker.PanelAndIntegrationTests.test_sra_accession_directory_and_fastq_paths) ... ok
+test_unknown_strain_name_rejected (test_checker.PanelAndIntegrationTests.test_unknown_strain_name_rejected) ... ok
+test_low_base_quality (test_checker.PileupTests.test_low_base_quality) ... ok
+test_malformed_output_fails (test_checker.PileupTests.test_malformed_output_fails) ... ok
+test_matching_mates_once_conflicting_mates_discarded (test_checker.PileupTests.test_matching_mates_once_conflicting_mates_discarded) ... ok
+test_nh_multimappers_and_missing_tags_are_excluded (test_checker.PileupTests.test_nh_multimappers_and_missing_tags_are_excluded) ... ok
+test_read_groups_separate_runs (test_checker.PileupTests.test_read_groups_separate_runs) ... ok
+test_splice_indels_and_start_end_tokens (test_checker.PileupTests.test_splice_indels_and_start_end_tokens) ... ok
+test_deep_single_site_cannot_pass_site_requirement (test_checker.ScoringTests.test_deep_single_site_cannot_pass_site_requirement) ... ok
+test_depth_cap (test_checker.ScoringTests.test_depth_cap) ... ok
+test_invalid_rules (test_checker.ScoringTests.test_invalid_rules) ... ok
+test_no_reads (test_checker.ScoringTests.test_no_reads) ... ok
+test_observed_indistinguishable_strains_no_call (test_checker.ScoringTests.test_observed_indistinguishable_strains_no_call) ... ok
+test_poor_fit_is_unknown (test_checker.ScoringTests.test_poor_fit_is_unknown) ... ok
+test_pure_and_mixed_candidates (test_checker.ScoringTests.test_pure_and_mixed_candidates) ... ok
+test_synthetic_fastq_to_hisat2_bam_to_chromosome_candidate (test_external_tools.ExternalToolSmokeTest.test_synthetic_fastq_to_hisat2_bam_to_chromosome_candidate) ... skipped 'HISAT2 and SAMtools are required; run inside the supplied Docker image'
+
+----------------------------------------------------------------------
+Ran 32 tests in 0.067s
+
+OK (skipped=1)

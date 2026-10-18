@@ -1,0 +1,8 @@
+services:
+  strain-checker:
+    build: .
+    ports:
+      - "127.0.0.1:8502:8501"
+    volumes:
+      - ./data:/data
+    init: true
