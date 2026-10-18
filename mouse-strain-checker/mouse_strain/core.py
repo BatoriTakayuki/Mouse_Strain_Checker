@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 from itertools import combinations
 import math
+from numbers import Real
 
 
 @dataclass(frozen=True)
@@ -23,10 +24,16 @@ class Rules:
     max_pileup_depth: int = 10000
 
     def __post_init__(self):
-        if any(not math.isfinite(value) for value in vars(self).values()):
-            raise ValueError("Thresholds must be finite")
-        for key in ("min_depth", "min_sites", "min_window_sites", "min_chrom_windows", "min_diagnostic",
-                    "window_size", "depth_cap", "max_pileup_depth"):
+        for key, value in vars(self).items():
+            if isinstance(value, bool) or not isinstance(value, Real) or not math.isfinite(value):
+                raise ValueError(f"{key} must be a finite number")
+        integer_fields = ("min_depth", "min_mapq", "min_baseq", "min_sites", "min_window_sites",
+                          "min_chrom_windows", "min_diagnostic", "window_size", "depth_cap",
+                          "max_pileup_depth")
+        for key in integer_fields:
+            if not isinstance(getattr(self, key), int):
+                raise ValueError(f"{key} must be an integer")
+        for key in set(integer_fields) - {"min_mapq", "min_baseq"}:
             if getattr(self, key) < 1:
                 raise ValueError(f"{key} must be positive")
         if not 0 < self.error_rate < 0.5 or self.concentration <= 0:
@@ -43,7 +50,12 @@ def site_scores(ref_count, alt_count, rules):
     Cap effective depth without rounding; use the same overdispersion for
     homozygous and two-strain models. No independence/posterior claim is made.
     """
+    if any(isinstance(count, bool) or not isinstance(count, Real)
+           or not math.isfinite(count) or count < 0 for count in (ref_count, alt_count)):
+        raise ValueError("Allele counts must be finite and nonnegative")
     depth = ref_count + alt_count
+    if depth <= 0 or not math.isfinite(depth):
+        raise ValueError("At least one finite allele observation is required")
     scale = min(1.0, rules.depth_cap / depth)
     k, n = alt_count * scale, depth * scale
     result = []
@@ -57,10 +69,14 @@ def site_scores(ref_count, alt_count, rules):
 
 class Summary:
     def __init__(self, strains, pairs=True):
-        self.strains = strains
-        self.models = [(i, i) for i in range(len(strains))]
+        self.strains = tuple(strains)
+        if len(self.strains) < 2 or any(not isinstance(s, str) or not s for s in self.strains):
+            raise ValueError("At least two named candidate strains are required")
+        if len(set(self.strains)) != len(self.strains):
+            raise ValueError("Candidate strain names must be unique")
+        self.models = [(i, i) for i in range(len(self.strains))]
         if pairs:
-            self.models += list(combinations(range(len(strains)), 2))
+            self.models += list(combinations(range(len(self.strains)), 2))
         self.scores = [0.0] * len(self.models)
         self.saturated = 0.0
         self.n = 0
@@ -68,6 +84,8 @@ class Summary:
         self.patterns = {}
 
     def add(self, pos, genotypes, ref_count, alt_count, rules):
+        if not isinstance(genotypes, str) or len(genotypes) != len(self.strains) or set(genotypes) - {"0", "1"}:
+            raise ValueError("Expected one binary genotype per candidate strain")
         likelihoods = site_scores(ref_count, alt_count, rules)
         for i, (a, b) in enumerate(self.models):
             self.scores[i] += likelihoods[int(genotypes[a]) + int(genotypes[b])]
@@ -121,31 +139,38 @@ class Summary:
 
 def parse_bases(bases, ref):
     """One token per pileup entry, including deletions and intron skips."""
+    if not isinstance(ref, str) or len(ref) != 1 or ref.upper() not in "ACGTN":
+        raise ValueError("Expected one pileup reference base")
     result, i = [], 0
     while i < len(bases):
-        char = bases[i]
-        if char == "^":
-            if i + 1 >= len(bases):
+        if bases[i] == "^":
+            if i + 2 >= len(bases):
                 raise ValueError("Truncated pileup read-start")
             i += 2
-        elif char == "$":
-            i += 1
-        elif char in "+-":
+        char = bases[i]
+        if char not in ".,ACGTNacgtn*#<>":
+            raise ValueError(f"Unsupported pileup token: {char!r}")
+        result.append(ref.upper() if char in ".," else char.upper())
+        i += 1
+        while i < len(bases) and bases[i] in "+-":
+            operation = bases[i]
             i += 1
             start = i
-            while i < len(bases) and bases[i].isdigit():
+            while i < len(bases) and bases[i] in "0123456789":
                 i += 1
             if i == start:
                 raise ValueError("Invalid pileup indel")
             length = int(bases[start:i])
-            i += length
-            if i > len(bases):
+            if length < 1:
+                raise ValueError("Invalid pileup indel length")
+            if i + length > len(bases):
                 raise ValueError("Truncated pileup indel")
-        elif char in ".,ACGTNacgtn*#<>":
-            result.append(ref.upper() if char in ".," else char.upper())
+            allowed = "ACGTNacgtn*#" if operation == "+" else "ACGTNacgtn"
+            if any(base not in allowed for base in bases[i:i + length]):
+                raise ValueError("Invalid pileup indel sequence")
+            i += length
+        if i < len(bases) and bases[i] == "$":
             i += 1
-        else:
-            raise ValueError(f"Unsupported pileup token: {char!r}")
     return result
 
 
@@ -156,13 +181,20 @@ def count_fragments(fields, rules, qc=None):
     Group by (RG, QNAME) so names repeated across SRRs do not collide.
     """
     if len(fields) != 9:
-        raise ValueError("Expected 9 mpileup columns (QNAME,RG,NH); samtools >=1.18 required")
-    if int(fields[3]) == 0:
+        raise ValueError("Expected 9 mpileup columns (QNAME,RG,NH); samtools >=1.13 required")
+    depth = int(fields[3])
+    if depth < 0:
+        raise ValueError("Pileup depth must be nonnegative")
+    if depth == 0:
+        if any(field != "*" for field in fields[4:]):
+            raise ValueError("Zero-depth pileup columns must be empty placeholders")
         return {}
     bases = parse_bases(fields[4], fields[2])
     qualities = [ord(c) - 33 for c in fields[5]]
+    if any(quality < 0 or quality > 93 for quality in qualities):
+        raise ValueError("Invalid pileup base-quality encoding")
     names, groups, nh = [s.split(",") for s in fields[6:9]]
-    if not (len(bases) == len(qualities) == len(names) == len(groups) == len(nh) == int(fields[3])):
+    if not (len(bases) == len(qualities) == len(names) == len(groups) == len(nh) == depth):
         raise ValueError("Pileup column lengths disagree; refusing misassigned base evidence")
     fragments = {}
     for base, quality, name, group, hits in zip(bases, qualities, names, groups, nh):

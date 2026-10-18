@@ -2,11 +2,12 @@
 import os
 from pathlib import Path
 import re
-import signal
 import subprocess
 import sys
 
 import streamlit as st
+
+from mouse_strain.jobs import completion_signature, launch, stop
 
 st.set_page_config(page_title="Mouse Strain Checker", layout="wide")
 st.title("Mouse Strain Checker")
@@ -22,30 +23,38 @@ st.caption("初回準備: python -m mouse_strain setup --out data/resources --th
 job = st.session_state.get("job")
 running = job is not None and job["process"].poll() is None
 if st.button("解析開始", disabled=running):
-    accessions = [s for s in re.split(r"[\s,]+", raw.strip()) if s]
+    accessions = list(dict.fromkeys(s for s in re.split(r"[\s,]+", raw.strip()) if s))
     if not accessions or any(not re.fullmatch(r"[SED]RX\d+", x) for x in accessions):
         st.error("SRX/ERX/DRX番号を入力してください。")
     elif not (Path(resources) / "config.json").exists():
         st.error("参照データを先にsetupで準備してください。")
     else:
         directory = Path(output).resolve()
-        directory.mkdir(parents=True, exist_ok=True)
-        log_path = directory / "job.log"
-        command = [sys.executable, "-m", "mouse_strain", "run", "--resources", resources,
+        command = [sys.executable, "-m", "mouse_strain", "run", "--resources", str(Path(resources).resolve()),
                    "--out", str(directory), "--threads", str(threads), "--srx", *accessions]
         if single:
             command.append("--single-only")
-        with open(log_path, "w") as handle:
-            process = subprocess.Popen(command, stdout=handle, stderr=subprocess.STDOUT, start_new_session=True)
-        st.session_state.job = dict(process=process, log=log_path, output=directory, accessions=accessions)
-        st.rerun()
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            log_path = directory / "job.log"
+            previous = {acc: completion_signature(directory / acc) for acc in accessions}
+            process = launch(command, log_path)
+        except OSError as error:
+            st.error(f"解析を開始できませんでした: {error}")
+        else:
+            st.session_state.job = dict(process=process, log=log_path, output=directory,
+                                        accessions=accessions, previous=previous)
+            st.rerun()
 if job:
     if running:
         st.info("解析中です。「状態を更新」で進捗を表示します。このタブを開いたままにしてください。")
         if st.button("解析を中断"):
-            os.killpg(job["process"].pid, signal.SIGTERM)
-            job["process"].wait()
-            st.rerun()
+            try:
+                stop(job["process"])
+            except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+                st.error(f"解析の中断に失敗しました: {error}")
+            else:
+                st.rerun()
     elif job["process"].returncode == 0:
         st.success("解析が完了しました。")
     else:
@@ -57,11 +66,12 @@ if job:
             st.code(handle.read().decode(errors="replace"), language="text")
     for acc in job["accessions"]:
         directory = job["output"] / acc
-        if not (directory / "complete.json").exists():
+        completed = completion_signature(directory)
+        if completed is None or completed == job["previous"].get(acc):
             continue
         st.subheader(acc)
         import csv
-        with open(directory / "chromosomes.csv") as f:
+        with open(directory / "chromosomes.csv", encoding="utf-8", newline="") as f:
             st.dataframe(list(csv.DictReader(f)), use_container_width=True)
         for filename, mime in (("report.html", "text/html"), ("chromosomes.csv", "text/csv"), ("windows.csv", "text/csv")):
             st.download_button(filename, (directory / filename).read_bytes(), file_name=acc + "_" + filename,

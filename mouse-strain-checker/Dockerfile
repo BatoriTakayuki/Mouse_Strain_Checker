@@ -9,6 +9,7 @@ COPY requirements-web.txt /app/requirements-web.txt
 RUN pip install --no-cache-dir -r /app/requirements-web.txt
 COPY mouse_strain /app/mouse_strain
 COPY tests /app/tests
+COPY start.bat start.ps1 /app/
 WORKDIR /data
 EXPOSE 8501
 ENTRYPOINT ["python", "-m", "mouse_strain"]

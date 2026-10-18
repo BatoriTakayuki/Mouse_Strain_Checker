@@ -1,8 +1,19 @@
 # Mouse Strain Checker
 
-マウスの公開RNA-seqのSRX番号から、**RNAで観測できた既知SNPに適合するマウス系統候補**を、染色体別・区間別に推定する独立ツールです。KO_Checkerへの変更・追加はありません。
+マウスの公開RNA-seqのSRX番号から、**RNAで観測できた既知SNPに適合するマウス系統候補**を、染色体別・区間別に推定する独立ツールです。KO_CHECKERを参考に、ダブルクリック起動・ブラウザからの参照準備・解析履歴・中断と再開を実装しています。
 
-**研究用プロトタイプ v0.1.0。合成データとモックによる31件のテストが合格。外部ツールを使う追加1件は依存実行環境がないためスキップ。実SRX、HISAT2/SAMtoolsの実行、Dockerビルド、ブラウザUIの実動作はこの作成環境では未検証です。判定閾値は精度評価で調整する必要があります。**
+**研究用プロトタイプ v0.1.0。2026-10-18にWeb画面と起動・ジョブ管理を更新しました。Dockerで118件中112件が合格し、環境依存の6件はWindows PowerShellとJavaScript実行環境で別途合格しています。人工FASTQ→HISAT2→SAMtools→系統候補出力、小規模参照のsetup再開、実プロセスの中断、HTTP APIを確認済みです。実SRXの精度評価、大容量参照データのsetup全工程、実ブラウザでの操作は未検証です。判定閾値は精度評価で調整する必要があります。**
+
+今回の見直しでは、以下を修正しました。スコア式と既定の判定閾値は維持しています。
+
+- ENAの欠損メタデータ、重複・不整合なFASTQペアを検出し、不完全なHTTP転送を保存しないようにしました。
+- 壊れたダウンロード・BAM・SRAキャッシュの記録を再生成し、インデックス作成失敗後の再試行に対応しました。
+- VCF品質値のNaN/Inf、重複sample/FORMAT、FASTA索引やパネル情報の不整合、不正なpileup入力を検証します。
+- setup完了前にパネルとHISAT2インデックスの整合性を確認し、不完全な参照を完成扱いにしません。
+- UIの重複SRX入力、過去の完了結果の誤表示、起動失敗時のエラー表示を修正し、中断処理をWindows/POSIXに対応させました。Windowsの子プロセス停止はモックで確認しています。
+- 出力をUTF-8に統一し、解析データやPythonキャッシュをGit・Dockerの対象から除外しました。
+
+検証環境とテスト出力は [TEST_RESULTS.txt](TEST_RESULTS.txt) に記録しています。
 
 ## 方針は妥当か
 
@@ -22,21 +33,47 @@
 
 **使いどころ:** 公共RNA-seqの背景系統の確認、B6/129混合の疑いの探索、KO近傍の残存ドナー領域候補の探索。DNA上の系統を確定する場合は、DNA SNPタイピングやWGS等と照合してください。混在、F1、汚染はこの出力だけでは区別できません。
 
-## Dockerで起動
+## Windowsで起動
+
+Docker Desktopをインストールして、このフォルダの **[start.bat](start.bat) をダブルクリック**してください。Docker Desktopの起動を確認し、初回はアプリをビルドして、**http://localhost:8502** をブラウザで開きます。すでにこのアプリが起動している場合は、そのコンテナを再利用して画面を開きます。
+
+画面でSRX/ERX/DRX番号を入力し、「解析開始」を押します。参照FASTA・SNPパネル・HISAT2索引は、未準備なら自動で準備します。先に参照だけ用意したい場合は「参照だけ準備」を使えます。手動のsetupコマンドは必須ではありません。
+
+CPUスレッド数、単一系統候補のみの比較、参照準備後の自動中断を画面から指定できます。SRXは1回に30件まで、改行・空白・カンマ区切りで入力します。重複した番号は1件にまとめます。
+
+## ターミナルで起動
 
 このフォルダで実行します。Docker DesktopまたはDocker Engine + Composeが必要です。
 
 ```bash
-docker compose build
-docker compose run --rm strain-checker setup --out /data/resources --threads 4
-docker compose up -d
+docker compose up -d --build
 ```
 
-ブラウザで **http://localhost:8502** を開き、SRX番号を入力して「解析開始」を押します。参照データは `/data/resources`、結果は `/data/results` が初期値です。複数SRXは別々に解析します。同じSRXに属する複数SRRは、ENA上で同じ生物試料に属することを確認して統合します。
+ブラウザで **http://localhost:8502** を開きます。参照データは `/data/resources`、画面からの解析履歴は `/data/results/web/<解析ID>/` に保存します。複数SRXは別々に解析します。同じSRXに属する複数SRRは、ENA上で同じ生物試料に属することを確認して統合します。
 
 初回のsetupはGRCm39のFASTA、Mouse Genomes Project v8のSNP VCFを取得し、パネルとHISAT2インデックスを作成します。**大容量のダウンロード・ディスク・計算時間が必要です。** 実行時間とメモリ量は本環境では計測していません。FASTQ、BAM、SRA変換用一時ファイルも保存するため、参照ファイルだけの容量で見積もらないでください。
 
-停止は `docker compose down`。解析中断は画面のボタン、またはコンテナ停止で行います。参照準備はCLIで実施します。UIは1つのタブで使用してください。ブラウザ再接続後のジョブ再接続・永続的なジョブ管理は未実装です。
+ブラウザを閉じても解析は継続します。画面を開き直すと履歴から状態を確認できます。CPU・ディスクを共有するため、画面から登録したジョブは1つずつ実行し、残りは待機します。DockerとホストPCの稼働が必要で、PCのスリープ中は処理できません。
+
+### 中断・再開と停止
+
+画面の「中断する」を押し、「中断中」になってからDockerやPCを停止してください。「再開する」では同じ解析IDとCPU設定を使い、完成済みSRXの結果と検証済みFASTQ・BAMを再利用します。計算途中のパネル・索引・マッピングは、その工程の先頭からやり直します。失敗したジョブも原因を解消後に再開できます。
+
+参照・FASTQのHTTP取得は、配信元のETagなどで同じファイルと確認でき、HTTP Rangeに対応していれば途中から再開します。配信元の内容が変わった場合やRange非対応の場合は先頭から取得します。転送量と速度は実測値で、全工程の残り時間は推定していません。
+
+```bash
+docker compose stop
+# 次回の起動
+docker compose up -d
+```
+
+サーバー停止時に実行中・待機中だったジョブは、再起動時に「中断中」として復元します。待機中の別ジョブがあると中断後に実行を始めるため、PCを止めるときは待機ジョブも確認してください。同じ参照フォルダに対してCLIや別サーバーを並行実行する使い方は対象外です。
+
+手動で参照を準備する場合は、従来のCLIも使用できます。
+
+```bash
+docker compose run --rm strain-checker setup --out /data/resources --threads 4 --resume
+```
 
 ### 既定の候補系統
 
@@ -46,7 +83,7 @@ MGP VCF内の `129S1_SvImJ, C57BL_6NJ, BALB_cJ, DBA_2J, FVB_NJ, CAST_EiJ, PWK_Ph
 docker compose run --rm strain-checker setup --out /data/resources_custom --threads 4 --strains 129S1_SvImJ,129P2_OlaHsd,129S5SvEvBrd,C57BL_6NJ,BALB_cJ,DBA_2J
 ```
 
-GUIの参照データ欄を `/data/resources_custom` に変更してください。候補系統はVCFのsample名と厳密に一致させます。任意の「129」や「BALB/c」などの総称への変換は行いません。
+独自の候補パネルはCLIの `run --resources /data/resources_custom` で指定します。画面で使う場合はWebサーバーの `--resources` に指定して起動してください。候補系統はVCFのsample名と厳密に一致させます。任意の「129」や「BALB/c」などの総称への変換は行いません。
 
 `C57BL_6J` は「参照FASTA由来なので選択SNPでREF」という仮定で追加します。VCFで測定された実試料のGTではありません。欠損GTをREF扱いする処理はありません。
 
@@ -95,7 +132,7 @@ X、Y、MTは単一候補モデルのみで別扱いです。X不活化、性別
 
 ## 出力
 
-各SRXのディレクトリ内に保存します。
+CLIでは指定した出力先の各SRXディレクトリ内に保存します。画面からの解析では、ホスト側の `data/results/web/<解析ID>/output/<SRX>/` に同じ結果を保存し、`job.json` と `pipeline.log` に状態と実行ログを残します。
 
 | ファイル | 内容 |
 |---|---|
@@ -121,7 +158,7 @@ X、Y、MTは単一候補モデルのみで別扱いです。X不活化、性別
 
 `candidate` は保留時も参考として出る単なる最上位候補です。**判定結果として扱うのはstatusとcallの組み合わせ**です。`complete.json` のないディレクトリは解析が完了していません。
 
-同じ入力で再実行すると、MD5検証済みFASTQと、入力・参照・ツール版が一致する完成BAMを再利用します。系統スコアは再計算します。同じ出力先の並行実行には対応していません。初回setupの途中でパネルやインデックスの作成が失敗した場合、途中ディレクトリを別名に移すか、新しい保存先で実行してください。
+CLIで同じ入力を再実行すると、MD5検証済みFASTQと、入力・参照・ツール版が一致する完成BAMを再利用し、系統スコアを再計算します。画面の「再開」では、そのジョブで完成したSRXの結果も再利用します。同じ出力先の並行実行には対応していません。中断したsetupは同じ条件の `setup --resume` で再開できます。入力条件が変わった場合や、未完了パネルにアプリが生成しないファイルが含まれる場合は、別の保存先を指定してください。
 
 ## 自分の参照データ / mm10を利用
 
@@ -140,10 +177,9 @@ FIを持たないVCFは標準で拒否します。独立に品質を確認した
 
 ## ローカル環境 / テスト
 
-Python 3.10以上、HISAT2、SAMtools 1.13以上が必要です。SRA取得にはSRA Toolkitも必要です。解析本体はPython標準ライブラリのみです。GUIのみ追加パッケージを使います。
+Python 3.10以上、HISAT2、SAMtools 1.13以上が必要です。SRA取得にはSRA Toolkitも必要です。解析本体と既定のWeb画面はPython標準ライブラリのみです。以前のStreamlit画面は `python -m mouse_strain web --streamlit` で使用でき、その場合だけ `requirements-web.txt` の追加パッケージが必要です。
 
 ```bash
-python -m pip install -r requirements-web.txt
 python -m mouse_strain web
 python -m unittest discover -s tests -v
 ```
@@ -154,7 +190,7 @@ Docker内での検証コマンドです。外部ツールが揃っていれば�
 docker compose run --rm --entrypoint python strain-checker -m unittest discover -s /app/tests -v
 ```
 
-ローカル起動のGUIは http://localhost:8501 です。Dockerとローカルでは初期データ保存先が異なるので、GUIのパス欄を確認してください。
+ローカル起動のGUIは http://localhost:8501 です。データ保存先は既定で `./data`、`--data` で変更できます。画面からはサーバーで設定した参照フォルダを使用します。Web画面に認証や利用者ごとのアクセス分離はなく、Composeはホストの127.0.0.1だけに公開します。
 
 ## 精度検証で次に行うこと
 

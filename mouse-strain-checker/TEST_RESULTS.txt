@@ -1,6 +1,56 @@
-Validation date: 2026-10-18
-31 tests passed; 1 external-tool smoke test skipped (HISAT2/SAMtools unavailable).
-Real SRX accuracy, Docker build, and browser UI not validated in this environment.
+Mouse Strain Checker - KO_CHECKER-style browser workflow
+Date: 2026-10-18 (Asia/Tokyo)
+
+Build and verification:
+- docker compose build: PASS
+- docker compose config: PASS
+- Final image standalone suite: 118 discovered; 112 PASS, 6 environment skips, 0 failures
+- Five skipped PowerShell execution checks: PASS on Windows PowerShell 5.1
+- One skipped JavaScript check: PASS in a JavaScript VM
+- Windows launcher suite: all 7 tests PASS (2 overlap with Docker checks)
+- Frontend DOM simulation: completed result rendering, downloads, stale response
+  rejection, in-progress results gating, and indeterminate progress PASS
+- Python 3.10 syntax: all 11 package modules PASS
+- HTTP /api/health, /, /app.js, /style.css, /api/jobs: HTTP 200
+- Health identifies app=mouse-strain-checker and finds all required executables
+- Temporary web server stopped after verification
+
+New workflow:
+- start.bat starts Docker if needed, builds/starts the app, and opens localhost:8502
+- Existing running service is reused without rebuilding or interrupting analysis
+- Browser submission prepares references automatically or prepares references only
+- Serial persistent queue, history, pause/resume, retry, and restart recovery
+- Same-ID resume reuses completed SRX reports and verified FASTQ/BAM
+- Validated HTTP Range resume, transfer byte counts and speed
+- Chromosome/window charts, evidence tables, and full-result downloads
+- Analysis scoring formula and default thresholds remain unchanged
+
+Integration coverage:
+- Synthetic FASTQ -> HISAT2 -> SAMtools -> strain inference
+- Interrupted small-reference setup -> complete validated panel and index -> reuse
+- Real local HTTP interrupted/truncated/range-ignored/changed-content/416 responses
+- Actual Linux process-group cancellation, including a child ignoring SIGTERM
+- HTTP API queue/actions, persisted state, and bounded results/full downloads
+
+Versions: Python 3.12.3; HISAT2 2.2.1; SAMtools 1.19.2; Streamlit 1.66.0
+The default browser UI uses only the Python standard library.
+
+Reproduce from this directory:
+  docker compose build
+  docker run --rm --init --network none --entrypoint python mouse-strain-checker-strain-checker -m unittest discover -s /app/tests -v
+  python -m unittest discover -s tests -p test_launcher.py -v
+
+Not validated:
+- Real SRX biological accuracy or threshold calibration
+- Production-size reference setup/download and real public SRA extraction
+- Actual browser visual rendering and end-to-end mouse/keyboard interaction
+- Actual Windows process-tree cancellation (mock coverage; Linux cancellation is real)
+- Completion caches externally altered after successful setup need manual repair
+
+Expected ERROR lines are invalid-input regression tests.
+Legacy Streamlit AppTest warnings are emitted by its test harness.
+
+Final Docker test output:
 
 test_input_path_injection (test_checker.EnaTests.test_input_path_injection) ... ok
 test_species_guard (test_checker.EnaTests.test_species_guard) ... ok
@@ -13,7 +63,8 @@ test_inference_regional_discordance_and_no_coverage (test_checker.PanelAndIntegr
 test_invalid_cli_accession_fails_before_any_output (test_checker.PanelAndIntegrationTests.test_invalid_cli_accession_fails_before_any_output) ... ERROR: Invalid experiment accession
 ok
 test_localized_reads_cannot_label_whole_chromosome (test_checker.PanelAndIntegrationTests.test_localized_reads_cannot_label_whole_chromosome) ... ok
-test_mapper_failure_not_hidden_by_successful_sort (test_checker.PanelAndIntegrationTests.test_mapper_failure_not_hidden_by_successful_sort) ... ok
+test_mapper_failure_not_hidden_by_successful_sort (test_checker.PanelAndIntegrationTests.test_mapper_failure_not_hidden_by_successful_sort) ... $ hisat2 -p 2 --dta -k 5 -x index --rg-id SRR1 --rg SM:SRS1 -U /tmp/tmpp2yu2jqj/read.fastq | samtools sort
+ok
 test_missing_low_fi_and_heterozygous_calls_not_reference (test_checker.PanelAndIntegrationTests.test_missing_low_fi_and_heterozygous_calls_not_reference) ... ok
 test_other_bases_and_insufficient_depth (test_checker.PanelAndIntegrationTests.test_other_bases_and_insufficient_depth) ... ok
 test_panel_provenance_and_bed_coordinates (test_checker.PanelAndIntegrationTests.test_panel_provenance_and_bed_coordinates) ... ok
@@ -34,9 +85,600 @@ test_no_reads (test_checker.ScoringTests.test_no_reads) ... ok
 test_observed_indistinguishable_strains_no_call (test_checker.ScoringTests.test_observed_indistinguishable_strains_no_call) ... ok
 test_poor_fit_is_unknown (test_checker.ScoringTests.test_poor_fit_is_unknown) ... ok
 test_pure_and_mixed_candidates (test_checker.ScoringTests.test_pure_and_mixed_candidates) ... ok
-test_synthetic_fastq_to_hisat2_bam_to_chromosome_candidate (test_external_tools.ExternalToolSmokeTest.test_synthetic_fastq_to_hisat2_bam_to_chromosome_candidate) ... skipped 'HISAT2 and SAMtools are required; run inside the supplied Docker image'
+test_invalid_resource_configs_are_explained (test_cli_review.CliReviewTests.test_invalid_resource_configs_are_explained) ... ERROR: Invalid resources config: fasta, panel, and index paths are required
+ERROR: Invalid resources config: fasta, panel, and index paths are required
+ERROR: Invalid resources config: fasta, panel, and index paths are required
+ERROR: Invalid resources config: fasta, panel, and index paths are required
+ok
+test_setup_does_not_publish_config_for_incomplete_index (test_cli_review.CliReviewTests.test_setup_does_not_publish_config_for_incomplete_index) ... ERROR: Incomplete HISAT2 index (8 parts required)
+ok
+test_invalid_counts_cannot_enter_summary (test_core_review.CoreInputTests.test_invalid_counts_cannot_enter_summary) ... ok
+test_rules_reject_fractional_counts_and_nonnumeric_thresholds (test_core_review.CoreInputTests.test_rules_reject_fractional_counts_and_nonnumeric_thresholds) ... ok
+test_summary_checks_strain_identity_and_genotype_mapping (test_core_review.CoreInputTests.test_summary_checks_strain_identity_and_genotype_mapping) ... ok
+test_all_supported_entry_types_keep_quality_and_name_alignment (test_core_review.PileupIntegrityTests.test_all_supported_entry_types_keep_quality_and_name_alignment) ... ok
+test_annotation_must_be_attached_to_a_pileup_entry (test_core_review.PileupIntegrityTests.test_annotation_must_be_attached_to_a_pileup_entry) ... ok
+test_malformed_base_quality_cannot_pass_quality_filter (test_core_review.PileupIntegrityTests.test_malformed_base_quality_cannot_pass_quality_filter) ... ok
+test_zero_depth_requires_documented_empty_columns (test_core_review.PileupIntegrityTests.test_zero_depth_requires_documented_empty_columns) ... ok
+test_interrupted_reference_setup_rebuilds_and_reuses_completed_assets (test_external_tools.ExternalToolSmokeTest.test_interrupted_reference_setup_rebuilds_and_reuses_completed_assets) ... Download: file:///tmp/tmpx9als8a_/source/reference.fa.gz
+Download: file:///tmp/tmpx9als8a_/source/strains.vcf.gz
+$ hisat2-build -p 1 /tmp/tmpx9als8a_/resources/reference.fa /tmp/tmpx9als8a_/resources/hisat2/genome
+Settings:
+  Output files: "/tmp/tmpx9als8a_/resources/hisat2/genome.*.ht2"
+  Line rate: 6 (line is 64 bytes)
+  Lines per side: 1 (side is 64 bytes)
+  Offset rate: 4 (one in 16)
+  FTable chars: 10
+  Strings: unpacked
+  Local offset rate: 3 (one in 8)
+  Local fTable chars: 6
+  Local sequence length: 57344
+  Local sequence overlap between two consecutive indexes: 1024
+  Endianness: little
+  Actual local endianness: little
+  Sanity checking: disabled
+  Assertions: disabled
+  Random seed: 0
+  Sizeofs: void*:8, int:4, long:8, size_t:8
+Input files DNA, FASTA:
+  /tmp/tmpx9als8a_/resources/reference.fa
+Reading reference sizes
+  Time reading reference sizes: 00:00:00
+Calculating joined length
+Writing header
+Reserving space for joined string
+Joining reference sequences
+  Time to join reference sequences: 00:00:00
+  Time to read SNPs and splice sites: 00:00:00
+Using parameters --bmax 188 --dcv 1024
+  Doing ahead-of-time memory usage test
+  Passed!  Constructing with these parameters: --bmax 188 --dcv 1024
+Building DifferenceCoverSample
+  Building sPrime
+  Building sPrimeOrder
+  V-Sorting samples
+  V-Sorting samples time: 00:00:00
+  Allocating rank array
+  Ranking v-sort output
+  Ranking v-sort output time: 00:00:00
+  Invoking Larsson-Sadakane on ranks
+  Invoking Larsson-Sadakane on ranks time: 00:00:00
+  Sanity-checking and returning
+Building samples
+Reserving space for 12 sample suffixes
+Generating random suffixes
+QSorting 12 sample offsets, eliminating duplicates
+QSorting sample offsets, eliminating duplicates time: 00:00:00
+Multikey QSorting 12 samples
+  (Using difference cover)
+Constructing suffix-array element generator
+  Multikey QSorting samples time: 00:00:00
+Calculating bucket sizes
+Splitting and merging
+  Splitting and merging time: 00:00:00
+Split 1, merged 6; iterating...
+Splitting and merging
+  Splitting and merging time: 00:00:00
+Avg bucket size: 142 (target: 187)
+Converting suffix-array elements to index image
+Allocating ftab, absorbFtab
+Getting block 1 of 7
+  Reserving size (188) for bucket 1
+  Calculating Z arrays for bucket 1
+  Entering block accumulator loop for bucket 1:
+  bucket 1: 10%
+  bucket 1: 20%
+  bucket 1: 30%
+  bucket 1: 40%
+  bucket 1: 50%
+  bucket 1: 60%
+  bucket 1: 70%
+  bucket 1: 80%
+  bucket 1: 90%
+  bucket 1: 100%
+  Sorting block of length 173 for bucket 1
+  (Using difference cover)
+  Sorting block time: 00:00:00
+Returning block of 174 for bucket 1
+Getting block 2 of 7
+  Reserving size (188) for bucket 2
+  Calculating Z arrays for bucket 2
+  Entering block accumulator loop for bucket 2:
+  bucket 2: 10%
+  bucket 2: 20%
+  bucket 2: 30%
+  bucket 2: 40%
+  bucket 2: 50%
+  bucket 2: 60%
+  bucket 2: 70%
+  bucket 2: 80%
+  bucket 2: 90%
+  bucket 2: 100%
+  Sorting block of length 150 for bucket 2
+  (Using difference cover)
+Entering GFM loop
+  Sorting block time: 00:00:00
+Returning block of 151 for bucket 2
+Getting block 3 of 7
+  Reserving size (188) for bucket 3
+  Calculating Z arrays for bucket 3
+  Entering block accumulator loop for bucket 3:
+  bucket 3: 10%
+  bucket 3: 20%
+  bucket 3: 30%
+  bucket 3: 40%
+  bucket 3: 50%
+  bucket 3: 60%
+  bucket 3: 70%
+  bucket 3: 80%
+  bucket 3: 90%
+  bucket 3: 100%
+  Sorting block of length 120 for bucket 3
+  (Using difference cover)
+  Sorting block time: 00:00:00
+Returning block of 121 for bucket 3
+Getting block 4 of 7
+  Reserving size (188) for bucket 4
+  Calculating Z arrays for bucket 4
+  Entering block accumulator loop for bucket 4:
+  bucket 4: 10%
+  bucket 4: 20%
+  bucket 4: 30%
+  bucket 4: 40%
+  bucket 4: 50%
+  bucket 4: 60%
+  bucket 4: 70%
+  bucket 4: 80%
+  bucket 4: 90%
+  bucket 4: 100%
+  Sorting block of length 133 for bucket 4
+  (Using difference cover)
+  Sorting block time: 00:00:00
+Returning block of 134 for bucket 4
+Getting block 5 of 7
+  Reserving size (188) for bucket 5
+  Calculating Z arrays for bucket 5
+  Entering block accumulator loop for bucket 5:
+  bucket 5: 10%
+  bucket 5: 20%
+  bucket 5: 30%
+  bucket 5: 40%
+  bucket 5: 50%
+  bucket 5: 60%
+  bucket 5: 70%
+  bucket 5: 80%
+  bucket 5: 90%
+  bucket 5: 100%
+  Sorting block of length 154 for bucket 5
+  (Using difference cover)
+  Sorting block time: 00:00:00
+Returning block of 155 for bucket 5
+Getting block 6 of 7
+  Reserving size (188) for bucket 6
+  Calculating Z arrays for bucket 6
+  Entering block accumulator loop for bucket 6:
+  bucket 6: 10%
+  bucket 6: 20%
+  bucket 6: 30%
+  bucket 6: 40%
+  bucket 6: 50%
+  bucket 6: 60%
+  bucket 6: 70%
+  bucket 6: 80%
+  bucket 6: 90%
+  bucket 6: 100%
+  Sorting block of length 137 for bucket 6
+  (Using difference cover)
+  Sorting block time: 00:00:00
+Returning block of 138 for bucket 6
+Getting block 7 of 7
+  Reserving size (188) for bucket 7
+  Calculating Z arrays for bucket 7
+  Entering block accumulator loop for bucket 7:
+  bucket 7: 10%
+  bucket 7: 20%
+  bucket 7: 30%
+  bucket 7: 40%
+  bucket 7: 50%
+  bucket 7: 60%
+  bucket 7: 70%
+  bucket 7: 80%
+  bucket 7: 90%
+  bucket 7: 100%
+  Sorting block of length 127 for bucket 7
+  (Using difference cover)
+  Sorting block time: 00:00:00
+Returning block of 128 for bucket 7
+Exited GFM loop
+fchr[A]: 0
+fchr[C]: 252
+fchr[G]: 503
+fchr[T]: 750
+fchr[$]: 1000
+Exiting GFM::buildToDisk()
+Returning from initFromVector
+Wrote 4194871 bytes to primary GFM file: /tmp/tmpx9als8a_/resources/hisat2/genome.1.ht2
+Wrote 256 bytes to secondary GFM file: /tmp/tmpx9als8a_/resources/hisat2/genome.2.ht2
+Re-opening _in1 and _in2 as input streams
+Returning from GFM constructor
+Returning from initFromVector
+Wrote 8613 bytes to primary GFM file: /tmp/tmpx9als8a_/resources/hisat2/genome.5.ht2
+Wrote 256 bytes to secondary GFM file: /tmp/tmpx9als8a_/resources/hisat2/genome.6.ht2
+Re-opening _in5 and _in5 as input streams
+Returning from HGFM constructor
+Headers:
+    len: 1000
+    gbwtLen: 1001
+    nodes: 1001
+    sz: 250
+    gbwtSz: 251
+    lineRate: 6
+    offRate: 4
+    offMask: 0xfffffff0
+    ftabChars: 10
+    eftabLen: 0
+    eftabSz: 0
+    ftabLen: 1048577
+    ftabSz: 4194308
+    offsLen: 63
+    offsSz: 252
+    lineSz: 64
+    sideSz: 64
+    sideGbwtSz: 48
+    sideGbwtLen: 192
+    numSides: 6
+    numLines: 6
+    gbwtTotLen: 384
+    gbwtTotSz: 384
+    reverse: 0
+    linearFM: Yes
+Total time for call to driver() for forward index: 00:00:00
+Ready: run --resources /tmp/tmpx9als8a_/resources --srx SRX... --out results
+ok
+test_synthetic_fastq_to_hisat2_bam_to_chromosome_candidate (test_external_tools.ExternalToolSmokeTest.test_synthetic_fastq_to_hisat2_bam_to_chromosome_candidate) ... $ hisat2-build -p 1 /tmp/tmpp8qjrep4/reference.fa /tmp/tmpp8qjrep4/index/genome
+Settings:
+  Output files: "/tmp/tmpp8qjrep4/index/genome.*.ht2"
+  Line rate: 6 (line is 64 bytes)
+  Lines per side: 1 (side is 64 bytes)
+  Offset rate: 4 (one in 16)
+  FTable chars: 10
+  Strings: unpacked
+  Local offset rate: 3 (one in 8)
+  Local fTable chars: 6
+  Local sequence length: 57344
+  Local sequence overlap between two consecutive indexes: 1024
+  Endianness: little
+  Actual local endianness: little
+  Sanity checking: disabled
+  Assertions: disabled
+  Random seed: 0
+  Sizeofs: void*:8, int:4, long:8, size_t:8
+Input files DNA, FASTA:
+  /tmp/tmpp8qjrep4/reference.fa
+Reading reference sizes
+  Time reading reference sizes: 00:00:00
+Calculating joined length
+Writing header
+Reserving space for joined string
+Joining reference sequences
+  Time to join reference sequences: 00:00:00
+  Time to read SNPs and splice sites: 00:00:00
+Using parameters --bmax 9563 --dcv 1024
+  Doing ahead-of-time memory usage test
+  Passed!  Constructing with these parameters: --bmax 9563 --dcv 1024
+Building DifferenceCoverSample
+  Building sPrime
+  Building sPrimeOrder
+  V-Sorting samples
+Constructing suffix-array element generator
+  V-Sorting samples time: 00:00:00
+  Allocating rank array
+  Ranking v-sort output
+  Ranking v-sort output time: 00:00:00
+  Invoking Larsson-Sadakane on ranks
+  Invoking Larsson-Sadakane on ranks time: 00:00:00
+  Sanity-checking and returning
+Building samples
+Reserving space for 12 sample suffixes
+Generating random suffixes
+QSorting 12 sample offsets, eliminating duplicates
+QSorting sample offsets, eliminating duplicates time: 00:00:00
+Multikey QSorting 12 samples
+  (Using difference cover)
+  Multikey QSorting samples time: 00:00:00
+Calculating bucket sizes
+Splitting and merging
+  Splitting and merging time: 00:00:00
+Split 1, merged 6; iterating...
+Converting suffix-array elements to index image
+Allocating ftab, absorbFtab
+Splitting and merging
+  Splitting and merging time: 00:00:00
+Avg bucket size: 7284.86 (target: 9562)
+Entering GFM loop
+Getting block 1 of 7
+  Reserving size (9563) for bucket 1
+  Calculating Z arrays for bucket 1
+  Entering block accumulator loop for bucket 1:
+  bucket 1: 10%
+  bucket 1: 20%
+  bucket 1: 30%
+  bucket 1: 40%
+  bucket 1: 50%
+  bucket 1: 60%
+  bucket 1: 70%
+  bucket 1: 80%
+  bucket 1: 90%
+  bucket 1: 100%
+  Sorting block of length 8919 for bucket 1
+  (Using difference cover)
+  Sorting block time: 00:00:00
+Returning block of 8920 for bucket 1
+Getting block 2 of 7
+  Reserving size (9563) for bucket 2
+  Calculating Z arrays for bucket 2
+  Entering block accumulator loop for bucket 2:
+  bucket 2: 10%
+  bucket 2: 20%
+  bucket 2: 30%
+  bucket 2: 40%
+  bucket 2: 50%
+  bucket 2: 60%
+  bucket 2: 70%
+  bucket 2: 80%
+  bucket 2: 90%
+  bucket 2: 100%
+  Sorting block of length 9085 for bucket 2
+  (Using difference cover)
+  Sorting block time: 00:00:00
+Returning block of 9086 for bucket 2
+Getting block 3 of 7
+  Reserving size (9563) for bucket 3
+  Calculating Z arrays for bucket 3
+  Entering block accumulator loop for bucket 3:
+  bucket 3: 10%
+  bucket 3: 20%
+  bucket 3: 30%
+  bucket 3: 40%
+  bucket 3: 50%
+  bucket 3: 60%
+  bucket 3: 70%
+  bucket 3: 80%
+  bucket 3: 90%
+  bucket 3: 100%
+  Sorting block of length 3957 for bucket 3
+  (Using difference cover)
+  Sorting block time: 00:00:00
+Returning block of 3958 for bucket 3
+Getting block 4 of 7
+  Reserving size (9563) for bucket 4
+  Calculating Z arrays for bucket 4
+  Entering block accumulator loop for bucket 4:
+  bucket 4: 10%
+  bucket 4: 20%
+  bucket 4: 30%
+  bucket 4: 40%
+  bucket 4: 50%
+  bucket 4: 60%
+  bucket 4: 70%
+  bucket 4: 80%
+  bucket 4: 90%
+  bucket 4: 100%
+  Sorting block of length 7499 for bucket 4
+  (Using difference cover)
+  Sorting block time: 00:00:00
+Returning block of 7500 for bucket 4
+Getting block 5 of 7
+  Reserving size (9563) for bucket 5
+  Calculating Z arrays for bucket 5
+  Entering block accumulator loop for bucket 5:
+  bucket 5: 10%
+  bucket 5: 20%
+  bucket 5: 30%
+  bucket 5: 40%
+  bucket 5: 50%
+  bucket 5: 60%
+  bucket 5: 70%
+  bucket 5: 80%
+  bucket 5: 90%
+  bucket 5: 100%
+  Sorting block of length 8096 for bucket 5
+  (Using difference cover)
+  Sorting block time: 00:00:00
+Returning block of 8097 for bucket 5
+Getting block 6 of 7
+  Reserving size (9563) for bucket 6
+  Calculating Z arrays for bucket 6
+  Entering block accumulator loop for bucket 6:
+  bucket 6: 10%
+  bucket 6: 20%
+  bucket 6: 30%
+  bucket 6: 40%
+  bucket 6: 50%
+  bucket 6: 60%
+  bucket 6: 70%
+  bucket 6: 80%
+  bucket 6: 90%
+  bucket 6: 100%
+  Sorting block of length 7536 for bucket 6
+  (Using difference cover)
+  Sorting block time: 00:00:00
+Returning block of 7537 for bucket 6
+Getting block 7 of 7
+  Reserving size (9563) for bucket 7
+  Calculating Z arrays for bucket 7
+  Entering block accumulator loop for bucket 7:
+  bucket 7: 10%
+  bucket 7: 20%
+  bucket 7: 30%
+  bucket 7: 40%
+  bucket 7: 50%
+  bucket 7: 60%
+  bucket 7: 70%
+  bucket 7: 80%
+  bucket 7: 90%
+  bucket 7: 100%
+  Sorting block of length 5902 for bucket 7
+  (Using difference cover)
+  Sorting block time: 00:00:00
+Returning block of 5903 for bucket 7
+Exited GFM loop
+fchr[A]: 0
+fchr[C]: 12771
+fchr[G]: 25626
+fchr[T]: 38283
+fchr[$]: 51000
+Exiting GFM::buildToDisk()
+Returning from initFromVector
+Wrote 4211529 bytes to primary GFM file: /tmp/tmpp8qjrep4/index/genome.1.ht2
+Wrote 12756 bytes to secondary GFM file: /tmp/tmpp8qjrep4/index/genome.2.ht2
+Re-opening _in1 and _in2 as input streams
+Returning from GFM constructor
+Returning from initFromVector
+Wrote 31213 bytes to primary GFM file: /tmp/tmpp8qjrep4/index/genome.5.ht2
+Wrote 12758 bytes to secondary GFM file: /tmp/tmpp8qjrep4/index/genome.6.ht2
+Re-opening _in5 and _in5 as input streams
+Returning from HGFM constructor
+Headers:
+    len: 51000
+    gbwtLen: 51001
+    nodes: 51001
+    sz: 12750
+    gbwtSz: 12751
+    lineRate: 6
+    offRate: 4
+    offMask: 0xfffffff0
+    ftabChars: 10
+    eftabLen: 0
+    eftabSz: 0
+    ftabLen: 1048577
+    ftabSz: 4194308
+    offsLen: 3188
+    offsSz: 12752
+    lineSz: 64
+    sideSz: 64
+    sideGbwtSz: 48
+    sideGbwtLen: 192
+    numSides: 266
+    numLines: 266
+    gbwtTotLen: 17024
+    gbwtTotSz: 17024
+    reverse: 0
+    linearFM: Yes
+Total time for call to driver() for forward index: 00:00:00
+$ hisat2 -p 1 --dta -k 5 -x /tmp/tmpp8qjrep4/index/genome --rg-id SRR0 --rg SM:SRS0 -U /tmp/tmpp8qjrep4/reads.fastq | samtools sort
+$ samtools quickcheck /tmp/tmpp8qjrep4/mapped.partial.bam
+$ samtools index -@ 1 /tmp/tmpp8qjrep4/mapped.bam
+$ samtools quickcheck /tmp/tmpp8qjrep4/mapped.bam
+$ samtools view -H /tmp/tmpp8qjrep4/mapped.bam
+$ samtools mpileup -B -q 30 -Q 0 -d 10000 --ff UNMAP,SECONDARY,QCFAIL,DUP,SUPPLEMENTARY -x --output-extra QNAME,RG,NH -f /tmp/tmpp8qjrep4/reference.fa -l /tmp/tmpp8qjrep4/panel/sites.bed /tmp/tmpp8qjrep4/mapped.bam
+ok
+test_batch_preserves_script_path_and_failure_pause (test_launcher.LauncherFileTests.test_batch_preserves_script_path_and_failure_pause) ... ok
+test_powershell_source_is_ascii_for_windows_powershell (test_launcher.LauncherFileTests.test_powershell_source_is_ascii_for_windows_powershell) ... ok
+test_compose_failure_does_not_open_browser (test_launcher.LauncherPowerShellTests.test_compose_failure_does_not_open_browser) ... skipped 'PowerShell is required for launcher execution checks'
+test_existing_container_is_reused_without_build_or_recreate (test_launcher.LauncherPowerShellTests.test_existing_container_is_reused_without_build_or_recreate) ... skipped 'PowerShell is required for launcher execution checks'
+test_stopped_service_is_built_and_started (test_launcher.LauncherPowerShellTests.test_stopped_service_is_built_and_started) ... skipped 'PowerShell is required for launcher execution checks'
+test_unrelated_health_server_does_not_open_browser (test_launcher.LauncherPowerShellTests.test_unrelated_health_server_does_not_open_browser) ... skipped 'PowerShell is required for launcher execution checks'
+test_windows_powershell_parser_accepts_launcher (test_launcher.LauncherPowerShellTests.test_windows_powershell_parser_accepts_launcher) ... skipped 'PowerShell is required for launcher execution checks'
+test_database_initialization_failure_closes_fasta (test_panel_review.PanelReviewTests.test_database_initialization_failure_closes_fasta) ... ok
+test_duplicate_fasta_contigs_are_rejected (test_panel_review.PanelReviewTests.test_duplicate_fasta_contigs_are_rejected) ... ok
+test_duplicate_format_keys_are_rejected (test_panel_review.PanelReviewTests.test_duplicate_format_keys_are_rejected) ... ok
+test_duplicate_sample_header_is_rejected_even_with_explicit_subset (test_panel_review.PanelReviewTests.test_duplicate_sample_header_is_rejected_even_with_explicit_subset) ... ok
+test_explicit_empty_strain_selection_does_not_select_every_sample (test_panel_review.PanelReviewTests.test_explicit_empty_strain_selection_does_not_select_every_sample) ... ok
+test_invalid_contig_metadata_is_rejected (test_panel_review.PanelReviewTests.test_invalid_contig_metadata_is_rejected) ... ok
+test_invalid_database_schema_is_rejected (test_panel_review.PanelReviewTests.test_invalid_database_schema_is_rejected) ... ok
+test_invalid_fasta_index_is_rejected (test_panel_review.PanelReviewTests.test_invalid_fasta_index_is_rejected) ... ok
+test_invalid_strain_metadata_is_rejected (test_panel_review.PanelReviewTests.test_invalid_strain_metadata_is_rejected) ... ok
+test_missing_or_invalid_fasta_checksum_is_rejected (test_panel_review.PanelReviewTests.test_missing_or_invalid_fasta_checksum_is_rejected) ... ok
+test_nonfinite_gq_cannot_pass_quality_filter (test_panel_review.PanelReviewTests.test_nonfinite_gq_cannot_pass_quality_filter) ... ok
+test_nonfinite_threshold_is_rejected_before_output (test_panel_review.PanelReviewTests.test_nonfinite_threshold_is_rejected_before_output) ... ok
+test_panel_missing_bed_is_incomplete (test_panel_review.PanelReviewTests.test_panel_missing_bed_is_incomplete) ... ok
+test_provenance_failure_does_not_publish_panel (test_panel_review.PanelReviewTests.test_provenance_failure_does_not_publish_panel) ... ok
+test_sites_only_vcf_has_no_samples (test_panel_review.PanelReviewTests.test_sites_only_vcf_has_no_samples) ... ok
+test_bam_check_failure_closes_panel_database (test_pipeline_review.PipelineReviewTests.test_bam_check_failure_closes_panel_database) ... ok
+test_complete_ena_pair_is_ordered_and_orphans_excluded (test_pipeline_review.PipelineReviewTests.test_complete_ena_pair_is_ordered_and_orphans_excluded) ... ENA orphan FASTQ excluded; only paired files are used
+ok
+test_corrupt_bam_marker_triggers_mapping (test_pipeline_review.PipelineReviewTests.test_corrupt_bam_marker_triggers_mapping) ... $ hisat2 -p 1 --dta -k 5 -x index --rg-id SRR1 --rg SM:SRS1 -U /tmp/tmpkjlv2yto/reads.fastq | samtools sort
+ok
+test_corrupt_sra_cache_record_triggers_extraction (test_pipeline_review.PipelineReviewTests.test_corrupt_sra_cache_record_triggers_extraction) ... ok
+test_download_replaces_corrupt_cache_record (test_pipeline_review.PipelineReviewTests.test_download_replaces_corrupt_cache_record) ... Download: https://example.org/reference.gz
+ok
+test_duplicate_mapping_inputs_are_rejected (test_pipeline_review.PipelineReviewTests.test_duplicate_mapping_inputs_are_rejected) ... ok
+test_duplicate_or_unrelated_ena_mates_are_rejected (test_pipeline_review.PipelineReviewTests.test_duplicate_or_unrelated_ena_mates_are_rejected) ... ok
+test_empty_index_parts_and_malformed_provenance_are_rejected (test_pipeline_review.PipelineReviewTests.test_empty_index_parts_and_malformed_provenance_are_rejected) ... ok
+test_exhausted_http_retry_reports_download_context (test_pipeline_review.PipelineReviewTests.test_exhausted_http_retry_reports_download_context) ... Download: https://example.org/reference.gz
+Download: https://example.org/reference.gz
+Download: https://example.org/reference.gz
+ok
+test_failed_index_build_can_be_retried (test_pipeline_review.PipelineReviewTests.test_failed_index_build_can_be_retried) ... ok
+test_incomplete_http_read_is_retried (test_pipeline_review.PipelineReviewTests.test_incomplete_http_read_is_retried) ... Download: https://example.org/reference.gz
+Download: https://example.org/reference.gz
+ok
+test_inconsistent_or_prefix_only_mouse_metadata_is_rejected (test_pipeline_review.PipelineReviewTests.test_inconsistent_or_prefix_only_mouse_metadata_is_rejected) ... ok
+test_invalid_pipeline_inputs_do_not_create_outputs (test_pipeline_review.PipelineReviewTests.test_invalid_pipeline_inputs_do_not_create_outputs) ... ok
+test_malformed_ena_columns_fail_with_clear_error (test_pipeline_review.PipelineReviewTests.test_malformed_ena_columns_fail_with_clear_error) ... ok
+test_missing_sample_cannot_be_pooled (test_pipeline_review.PipelineReviewTests.test_missing_sample_cannot_be_pooled) ... ok
+test_mouse_subspecies_are_still_supported (test_pipeline_review.PipelineReviewTests.test_mouse_subspecies_are_still_supported) ... ok
+test_mpileup_start_failure_closes_database_and_log (test_pipeline_review.PipelineReviewTests.test_mpileup_start_failure_closes_database_and_log) ... $ samtools mpileup -B -q 30 -Q 0 -d 10000 --ff UNMAP,SECONDARY,QCFAIL,DUP,SUPPLEMENTARY -x --output-extra QNAME,RG,NH -f ref.fa -l panel/sites.bed input.bam
+ok
+test_reports_use_utf8_for_japanese_content (test_pipeline_review.PipelineReviewTests.test_reports_use_utf8_for_japanese_content) ... ok
+test_successful_exit_without_complete_index_is_rejected (test_pipeline_review.PipelineReviewTests.test_successful_exit_without_complete_index_is_rejected) ... ok
+test_truncated_download_is_never_marked_complete (test_pipeline_review.PipelineReviewTests.test_truncated_download_is_never_marked_complete) ... Download: https://example.org/reference.gz
+Download: https://example.org/reference.gz
+Download: https://example.org/reference.gz
+ok
+test_416_refetches_without_trusting_partial_completion (test_resume_setup.ResumeTests.test_416_refetches_without_trusting_partial_completion) ... Download: http://127.0.0.1:41733/reference.gz
+Download: http://127.0.0.1:41733/reference.gz
+Download: http://127.0.0.1:41733/reference.gz
+ok
+test_bad_content_range_retries_without_appending (test_resume_setup.ResumeTests.test_bad_content_range_retries_without_appending) ... Download: http://127.0.0.1:35089/reference.gz
+Download: http://127.0.0.1:35089/reference.gz
+Download: http://127.0.0.1:35089/reference.gz
+ok
+test_changed_representation_is_retrieved_fresh (test_resume_setup.ResumeTests.test_changed_representation_is_retrieved_fresh) ... Download: http://127.0.0.1:46021/reference.gz
+Download: http://127.0.0.1:46021/reference.gz
+ok
+test_interrupted_download_resumes_with_validator_and_range (test_resume_setup.ResumeTests.test_interrupted_download_resumes_with_validator_and_range) ... Download: http://127.0.0.1:39877/reference.gz
+Download: http://127.0.0.1:39877/reference.gz
+ok
+test_range_ignored_replaces_old_prefix (test_resume_setup.ResumeTests.test_range_ignored_replaces_old_prefix) ... Download: http://127.0.0.1:33345/reference.gz
+Download: http://127.0.0.1:33345/reference.gz
+ok
+test_short_http_transfer_retries_from_validated_prefix (test_resume_setup.ResumeTests.test_short_http_transfer_retries_from_validated_prefix) ... Download: http://127.0.0.1:45259/reference.gz
+Download: http://127.0.0.1:45259/reference.gz
+ok
+test_setup_resume_rejects_changed_recorded_inputs (test_resume_setup.SetupRecoveryTests.test_setup_resume_rejects_changed_recorded_inputs) ... ERROR: Setup inputs changed; use a new resources directory
+ok
+test_unfinished_index_cleanup_is_limited_to_generated_parts (test_resume_setup.SetupRecoveryTests.test_unfinished_index_cleanup_is_limited_to_generated_parts) ... ok
+test_unfinished_panel_cleanup_preserves_unknown_files (test_resume_setup.SetupRecoveryTests.test_unfinished_panel_cleanup_preserves_unknown_files) ... ok
+test_accessible_self_contained_entry_point (test_static_ui.StaticUITests.test_accessible_self_contained_entry_point) ... ok
+test_api_strings_are_rendered_without_html_parsing (test_static_ui.StaticUITests.test_api_strings_are_rendered_without_html_parsing) ... ok
+test_javascript_input_and_evidence_display_rules (test_static_ui.StaticUITests.test_javascript_input_and_evidence_display_rules) ... skipped 'Node is optional; run JS_CHECKS in an available JS runtime'
+test_pause_kills_even_a_descendant_ignoring_sigterm (test_web_processes.RealProcessTests.test_pause_kills_even_a_descendant_ignoring_sigterm) ... ok
+test_launch_uses_utf8_logs_and_separate_process_group (test_web_review.JobTests.test_launch_uses_utf8_logs_and_separate_process_group) ... ok
+test_stop_escalates_after_timeout (test_web_review.JobTests.test_stop_escalates_after_timeout) ... ok
+test_stop_finishes_children_after_parent_exits (test_web_review.JobTests.test_stop_finishes_children_after_parent_exits) ... ok
+test_windows_stop_targets_child_processes (test_web_review.JobTests.test_windows_stop_targets_child_processes) ... ok
+test_launch_deduplicates_and_hides_previous_completion (test_web_review.WebReviewTests.test_launch_deduplicates_and_hides_previous_completion) ... 2026-10-18 09:49:23.935 WARNING streamlit.runtime.scriptrunner_utils.script_run_context: Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+ok
+test_launch_error_is_shown_without_crashing (test_web_review.WebReviewTests.test_launch_error_is_shown_without_crashing) ... 2026-10-18 09:49:24.050 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+ok
+test_cross_origin_and_non_json_requests_are_rejected (test_web_server.HTTPTests.test_cross_origin_and_non_json_requests_are_rejected) ... ok
+test_health_and_persisted_jobs (test_web_server.HTTPTests.test_health_and_persisted_jobs) ... ok
+test_log_tail_and_html_are_served_as_safe_downloads (test_web_server.HTTPTests.test_log_tail_and_html_are_served_as_safe_downloads) ... ok
+test_results_and_downloads_are_limited_to_completed_allowlisted_files (test_web_server.HTTPTests.test_results_and_downloads_are_limited_to_completed_allowlisted_files) ... ok
+test_same_origin_json_submission_and_actions (test_web_server.HTTPTests.test_same_origin_json_submission_and_actions) ... ok
+test_table_response_is_bounded_but_full_csv_can_be_downloaded (test_web_server.HTTPTests.test_table_response_is_bounded_but_full_csv_can_be_downloaded) ... ok
+test_automatic_setup_pause_and_resume_once (test_web_server.QueueTests.test_automatic_setup_pause_and_resume_once) ... ok
+test_close_stops_active_children_and_persists_paused (test_web_server.QueueTests.test_close_stops_active_children_and_persists_paused) ... ok
+test_failed_job_can_resume_with_same_id (test_web_server.QueueTests.test_failed_job_can_resume_with_same_id) ... ok
+test_old_queue_tokens_cannot_execute_a_resumed_job_twice (test_web_server.QueueTests.test_old_queue_tokens_cannot_execute_a_resumed_job_twice) ... ok
+test_progress_is_structured_and_cannot_overwrite_status (test_web_server.QueueTests.test_progress_is_structured_and_cannot_overwrite_status) ... ok
+test_restart_recovers_running_and_pausing_jobs_as_paused (test_web_server.QueueTests.test_restart_recovers_running_and_pausing_jobs_as_paused) ... ok
+test_running_pause_stops_child_and_resume_skips_finished_sample (test_web_server.QueueTests.test_running_pause_stops_child_and_resume_skips_finished_sample) ... ok
+test_setup_only_completes_without_analysis (test_web_server.QueueTests.test_setup_only_completes_without_analysis) ... ok
+test_validates_and_deduplicates_accessions_without_paths (test_web_server.QueueTests.test_validates_and_deduplicates_accessions_without_paths) ... ok
 
 ----------------------------------------------------------------------
-Ran 32 tests in 0.067s
+Ran 118 tests in 4.851s
 
-OK (skipped=1)
+OK (skipped=6)

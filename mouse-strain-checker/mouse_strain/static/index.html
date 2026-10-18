@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Mouse Strain Checker | RNAから系統の手がかりを</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+<header class="site-header"><a class="brand" href="/">Mouse Strain Checker<span>RNA evidence explorer</span></a><span class="header-note">公開RNA-seqから、染色体ごとの候補系統を探索</span></header>
+<main>
+  <section class="intro"><span class="eyebrow">RNA-SEQ / MOUSE STRAIN</span><h1>系統の手がかりを、<br class="mobile-break">染色体から。</h1><p>SRX番号を入力すると、参照の準備から配列の取得・整列・既知SNPの評価まで自動で進めます。</p><p class="notice">RNAで観測した領域に限る暫定推定です。DNA全体の系統や交雑率、F1を確定するものではありません。</p></section>
+  <div id="health" class="health" role="status">解析環境を確認しています…</div>
+  <p id="connection" class="error connection" role="status" aria-live="polite" hidden></p>
+  <div class="workspace">
+    <aside>
+      <section class="card form-card"><div class="section-heading"><span class="step-number">01</span><h2>新しい解析</h2></div>
+        <form id="analysis-form">
+          <label for="srx">RNA-seqの実験番号</label>
+          <textarea id="srx" name="srx" rows="5" placeholder="SRX123456&#10;ERX123457" aria-describedby="srx-hint" maxlength="6000" spellcheck="false" autocomplete="off"></textarea>
+          <p id="srx-hint" class="hint">SRX / ERX / DRXを改行・カンマ・空白で区切って入力。重複を除いて30件まで。各実験の全runをまとめて解析します。</p>
+          <details><summary>解析オプション</summary>
+            <label for="threads">CPUスレッド数</label><input id="threads" name="threads" type="number" min="1" max="128" step="1" inputmode="numeric" placeholder="環境に合わせて自動設定" aria-describedby="threads-hint">
+            <p id="threads-hint" class="hint">1〜128。空欄ならサーバーの既定値を使います。中断後の再開でも同じ設定を使います。</p>
+            <label class="check-option"><input id="single-only" name="single_only" type="checkbox"><span>単一系統モデルだけで評価する</span></label>
+            <p class="hint">通常は2系統モデルも比較します。X・Y・ミトコンドリアは単一系統モデルで評価します。</p>
+            <label class="check-option"><input id="pause-after-reference" name="pause_after_reference" type="checkbox"><span>参照の準備が終わったら中断する</span></label>
+          </details>
+          <button id="submit" type="submit" class="primary full">解析開始 <span aria-hidden="true">→</span></button>
+          <button id="setup" type="button" class="secondary full">参照だけ準備</button>
+          <p id="form-error" class="error" role="alert"></p>
+        </form>
+        <details><summary>初めて使うとき</summary><p>参照データと索引は必要に応じて自動で準備され、次回以降も再利用されます。初回は大容量のダウンロードと長時間の処理が発生します。十分なディスク空き容量をご用意ください。</p><p>「参照だけ準備」では実験番号は不要です。通常のバルクRNA-seqが対象です。単一細胞・UMIなど特殊なライブラリの評価には対応していません。</p><p>中断した解析は履歴から再開できます。処理の途中で止めた工程は再実行されることがあります。</p></details>
+      </section>
+      <section class="card history-card"><div class="section-top"><h2>解析履歴</h2><button id="refresh-history" type="button" class="text-button" aria-label="履歴を更新">更新</button></div><div id="history"><p class="muted">履歴を読み込んでいます…</p></div></section>
+    </aside>
+    <div class="content">
+      <section id="empty" class="card empty"><div class="empty-symbol" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div><span class="eyebrow">FROM READS TO EVIDENCE</span><h2>調べたいRNA-seqを登録してください</h2><p>染色体ごとの判定と固定窓の分布を見比べ、候補系統とその根拠を確認できます。</p><ol class="steps"><li>参照を準備</li><li>配列を取得・整列</li><li>SNPで候補を比較</li></ol></section>
+      <section id="job" class="card job-card" hidden aria-labelledby="job-title"><div class="section-top"><div><span id="job-id" class="eyebrow"></span><h2 id="job-title">解析の進捗</h2></div><span id="status" class="badge"></span></div>
+        <p id="job-message" class="job-message" role="status" aria-live="polite"></p>
+        <progress id="progress" max="100" value="0" aria-label="工程の進捗目安"></progress><div class="progress-caption"><span id="stage"></span><span id="percent"></span></div><p class="hint progress-note">現在の工程と、取得できた転送量を表示します。全体の残り時間は未計測です。</p>
+        <div class="job-metrics"><span id="elapsed"></span><span id="run-count"></span><span id="last-update"></span></div><p id="activity" class="hint"></p>
+        <div id="transfer" class="transfer" hidden><progress id="transfer-progress" max="100" value="0" aria-label="転送の進捗"></progress><p id="transfer-text" class="hint"></p></div>
+        <div class="job-actions"><button id="pause" type="button" class="secondary" hidden>中断する</button><button id="resume" type="button" hidden>再開する</button><button id="retry" type="button" class="secondary" hidden>失敗した工程から再試行</button></div><p id="pause-info" class="hint"></p><p id="job-error" class="error" role="alert"></p>
+        <details id="log-panel"><summary>処理ログ</summary><pre id="log">ログを読み込んでいます…</pre><a id="log-download" download>ログ全体をダウンロード</a></details>
+      </section>
+      <div id="results" hidden>
+        <section class="card result-intro"><div class="section-top"><div><span class="eyebrow">02 / RESULTS</span><h2>RNAで観測した系統の手がかり</h2></div><div class="sample-picker"><label for="sample-select">表示する実験</label><select id="sample-select"></select></div></div><div id="summary" class="summary"></div><p class="result-notice">「判定」は評価条件を満たしたモデル、「最上位候補」は条件を満たさない場合も含む比較上位モデルです。判定保留は、特定系統を否定する意味ではありません。</p><p id="result-limit" class="hint"></p></section>
+        <section class="card"><div class="section-top"><h2>染色体ごとの固定窓</h2><span class="muted">RNA上の観測領域</span></div><p class="hint">各染色体を同じ幅に正規化しています。区間を選ぶと詳細を表示します。2系統モデルの斜線は配合率を示しません。</p><div id="legend" class="legend"></div><div id="chromosome-bars" class="chromosome-bars"></div><p id="window-detail" class="window-detail" role="status" aria-live="polite">区間を選択して根拠を確認してください。</p></section>
+        <section class="card"><h2>染色体ごとの判定と根拠</h2><div class="scroll"><table id="chromosomes-table"><caption class="sr-only">染色体ごとの判定、最上位候補、SNP数と評価指標</caption></table></div><details><summary>判定・指標の読み方</summary><dl class="status-key"><dt>単一系統候補を支持</dt><dd>観測したSNPが単一系統候補を支持しています。</dd><dt>2系統モデルを支持</dt><dd>混在やヘテロ接合などと整合するモデルです。F1や交雑の確定ではありません。</dd><dt>区間間で不一致 / 根拠が局所的</dt><dd>染色体を単一の判定で代表できないため保留しています。</dd><dt>判別困難 / モデル適合不良 / SNP不足 / SNP未観測</dt><dd>候補間の区別や判定に必要な根拠が足りない場合などに表示します。</dd></dl><p>判別SNP数は最上位と次点のモデルを区別できる観測SNP数です。スコア差/SNPと適合損失/SNPは比較指標で、確率や信頼度ではありません。X・Y・ミトコンドリアは単一系統モデルで評価します。</p></details></section>
+        <section class="card"><h2>評価データの詳細</h2><details open><summary>固定窓ごとの判定</summary><div class="scroll"><table id="windows-table"><caption class="sr-only">固定窓ごとの判定と根拠</caption></table></div></details><details><summary>候補モデルのスコア</summary><p class="hint">平均対数スコアが高いモデルほど、この比較では上位です。候補の確率やDNA全体の由来を表しません。</p><div class="scroll"><table id="scores-table"><caption class="sr-only">染色体別の候補モデル比較</caption></table></div></details></section>
+        <section class="card"><h2>結果をダウンロード</h2><p class="hint">CSVは全行を含みます。HTMLレポートや観測SNPのデータも保存できます。</p><div id="downloads" class="downloads"></div></section>
+      </div>
+    </div>
+  </div>
+</main>
+<footer>Mouse Strain Checker <span>RNAで読めた既知SNPと候補モデルに基づく探索的評価</span></footer>
+</body>
+</html>
