@@ -215,14 +215,23 @@ class PanelAndIntegrationTests(unittest.TestCase):
         commands = []
         def fake_run(command, **kwargs):
             commands.append(list(map(str, command)))
+            if command[0] == "prefetch":
+                accession_directory = Path(command[-1])
+                accession_directory.mkdir(parents=True)
+                (accession_directory / "SRR1.sra").write_text("sra")
             if command[0] == "fasterq-dump":
-                (directory / "SRR1_1.fastq").write_text("read1")
-                (directory / "SRR1_2.fastq").write_text("read2")
+                output = Path(command[command.index("-O") + 1])
+                (output / "SRR1_1.fastq").write_text("read1")
+                (output / "SRR1_2.fastq").write_text("read2")
         row = dict(run_accession="SRR1", fastq_ftp="", fastq_md5="", library_layout="PAIRED")
-        with patch("mouse_strain.pipeline.run", side_effect=fake_run), patch("mouse_strain.pipeline.require_tools"):
+        with patch("mouse_strain.pipeline.run", side_effect=fake_run), \
+             patch("mouse_strain.pipeline.require_tools"), \
+             patch("mouse_strain.pipeline.tool_version", return_value="fixture"):
             paths = get_reads(row, directory, 4)
         self.assertEqual(Path(commands[0][-1]).name, "SRR1")
-        self.assertEqual(commands[1][1], str(directory / "sra/SRR1/SRR1.sra"))
+        self.assertEqual(commands[1], ["vdb-validate", str(directory / "sra/SRR1/SRR1.sra")])
+        self.assertEqual(commands[2][1], str(directory / "sra/SRR1"))
+        self.assertIn("--split-3", commands[2])
         self.assertEqual([p.name for p in paths], ["SRR1_1.fastq", "SRR1_2.fastq"])
 
     def test_mapper_failure_not_hidden_by_successful_sort(self):
@@ -265,10 +274,12 @@ class PanelAndIntegrationTests(unittest.TestCase):
         out.mkdir()
         (out / "complete.json").write_text("{}")
         (out / "report.html").write_text("old")
+        (out / "sex.json").write_text('{"label":"old"}')
         with self.assertRaises(ValueError):
             analyze("SRX1", self.fasta, panel, "missing", out)
         self.assertFalse((out / "complete.json").exists())
         self.assertFalse((out / "report.html").exists())
+        self.assertFalse((out / "sex.json").exists())
 
 
 class EnaTests(unittest.TestCase):

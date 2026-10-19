@@ -12,6 +12,7 @@ from mouse_strain.core import Rules
 from mouse_strain.panel import build_panel, load_panel
 from mouse_strain.pipeline import build_index, index_identity, map_run, infer
 from mouse_strain.__main__ import main
+from mouse_strain.preprocess import trim_reads
 from unittest.mock import patch
 
 
@@ -85,7 +86,12 @@ class ExternalToolSmokeTest(unittest.TestCase):
             meta, db = load_panel(panel)
             db.close()
             idx = index_identity(prefix, meta)
-            bam = map_run([fastq], dict(run_accession="SRR0", sample_accession="SRS0"),
+            mapping_reads = [fastq]
+            if shutil.which("fastp"):
+                mapping_reads = trim_reads(mapping_reads, dict(run_accession="SRR0", library_layout="SINGLE"),
+                                           root / "preprocess", threads=1)
+                self.assertTrue(mapping_reads[0].name.endswith(".trim.fastq.gz"))
+            bam = map_run(mapping_reads, dict(run_accession="SRR0", sample_accession="SRS0"),
                           prefix, idx, root / "mapped.bam", threads=1)
             results = infer(bam, fasta, panel, root / "result",
                             replace(Rules(), window_size=10000))

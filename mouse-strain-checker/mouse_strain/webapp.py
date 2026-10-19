@@ -42,6 +42,21 @@ def result_data(jobs, job):
             truncated = truncated or count > TABLE_LIMIT
         sample["files"] = sorted(name for name in RESULT_FILES if (directory / name).is_file()
                                  and (directory / name).resolve().is_relative_to(directory.resolve()))
+        for key, filename in (("diagnosis", "diagnosis.json"), ("sex", "sex.json"), ("workflow", "workflow.json"), ("cleanup", "cleanup.json")):
+            detail_file = directory / filename
+            if detail_file.is_file() and detail_file.resolve().is_relative_to(directory.resolve()):
+                try:
+                    # Optional details must not hide otherwise complete legacy results.
+                    def reject_constant(value):
+                        raise ValueError(f"Invalid JSON number: {value}")
+
+                    if detail_file.stat().st_size <= 1024 * 1024:
+                        detail = json.loads(detail_file.read_text(encoding="utf-8-sig"), parse_constant=reject_constant)
+                        if isinstance(detail, dict):
+                            json.dumps(detail, allow_nan=False)
+                            sample[key] = detail
+                except (OSError, UnicodeError, ValueError, RecursionError):
+                    pass
         samples.append(sample)
     return dict(samples=samples, truncated=truncated)
 
@@ -104,7 +119,8 @@ def handler(jobs):
                 return self.send(403, {"error": "同じ画面から操作してください。"})
             path = urlsplit(self.path).path
             action = re.fullmatch(r"/api/jobs/([a-f0-9]{32})/(pause|resume)", path)
-            if path != "/api/jobs" and not action:
+            storage_action = path in {"/api/storage/preview", "/api/storage/cleanup"}
+            if path != "/api/jobs" and not action and not storage_action:
                 return self.send(404, {"error": "Not found"})
             if self.headers.get("Content-Type", "").split(";")[0].strip().lower() != "application/json":
                 return self.send(415, {"error": "application/jsonを指定してください。"})
@@ -113,6 +129,18 @@ def handler(jobs):
                 if not 0 < length <= MAX_BODY or self.headers.get("Transfer-Encoding"):
                     return self.send(413, {"error": "入力サイズが不正です。"})
                 payload = json.loads(self.rfile.read(length))
+                if storage_action:
+                    if not isinstance(payload, dict):
+                        raise ValueError("削除設定はJSONオブジェクトで指定してください。")
+                    if path.endswith("/preview"):
+                        if set(payload) - {"scope", "job_id"}:
+                            raise ValueError("削除設定が不正です。")
+                        result = jobs.storage.preview(payload.get("scope"), payload.get("job_id"))
+                    else:
+                        if set(payload) != {"token", "confirm"}:
+                            raise ValueError("確認済みの削除対象を指定してください。")
+                        result = jobs.storage.cleanup(payload["token"], payload["confirm"])
+                    return self.send(200, result)
                 if action:
                     jid, operation = action.groups()
                     if not jobs.get(jid):
@@ -125,7 +153,9 @@ def handler(jobs):
             except (ValueError, UnicodeError, TypeError) as error:
                 return self.send(400, {"error": str(error)})
             except OSError:
-                return self.send(500, {"error": "ジョブ情報を保存できませんでした。空き容量を確認してください。"})
+                message = ("ファイルを処理できませんでした。容量を更新して、残りの対象とファイルの使用状況を確認してください。"
+                           if storage_action else "ジョブ情報を保存できませんでした。空き容量を確認してください。")
+                return self.send(500, {"error": message})
             return self.send(202, job)
 
         def do_GET(self):
@@ -143,13 +173,15 @@ def handler(jobs):
                 mime = mimetypes.guess_type(file.name)[0] or "application/octet-stream"
                 return self.send(200, file.read_bytes(), mime + "; charset=utf-8")
             if path in {"/api/health", "/_stcore/health"}:
-                tools = ("prefetch", "vdb-validate", "fasterq-dump", "hisat2", "hisat2-build", "samtools")
+                tools = ("prefetch", "vdb-validate", "fasterq-dump", "fastp", "hisat2", "hisat2-build", "samtools")
                 return self.send(200, dict(app="mouse-strain-checker", tools={name: bool(shutil.which(name)) for name in tools},
                                           default_threads=jobs.threads, logical_cpus=os.cpu_count(),
                                           disk_free_gb=round(shutil.disk_usage(jobs.root).free / 1024**3, 1),
                                           reference_ready=bool(reference_ready(jobs.resources))))
             if path == "/api/jobs":
                 return self.send(200, jobs.list())
+            if path == "/api/storage":
+                return self.send(200, jobs.storage.overview())
             match = re.fullmatch(r"/api/jobs/([a-f0-9]{32})(?:/(results|log|files/.+))?", path)
             if not match:
                 return self.send(404, {"error": "Not found"})

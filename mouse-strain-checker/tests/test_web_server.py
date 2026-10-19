@@ -102,6 +102,8 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(final["completed_accessions"], ["SRX1"])
         self.assertEqual(len(self.calls), 2)
         self.assertIn("--single-only", self.calls[-1][0])
+        command = self.calls[-1][0]
+        self.assertEqual(command[command.index("--download-method") + 1], "sra")
         self.assertTrue(self.calls[-1][2]["append"])
         self.assertEqual(self.calls[-1][2]["env"]["MOUSE_STRAIN_PROGRESS_FILE"],
                          str(self.jobs.root / job["id"] / "progress.json"))

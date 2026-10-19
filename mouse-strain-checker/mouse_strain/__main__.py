@@ -96,11 +96,18 @@ def parser():
     r.add_argument("--threads", type=int, default=4)
     r.add_argument("--bam", help="Existing sorted BAM (HISAT2 NH tags required)")
     r.add_argument("--bam-assembly", choices=("GRCm38", "GRCm39"))
-    r.add_argument("--download-method", choices=("auto", "ena", "sra"), default="auto")
+    r.add_argument("--download-method", choices=("auto", "ena", "sra"), default="sra",
+                   help="Read acquisition: sra (default), auto (alias of sra), or explicit ENA HTTPS")
+    r.add_argument("--skip-fastp", action="store_true", help="Map untrimmed reads instead of the default fastp preprocessing")
     r.add_argument("--single-only", action="store_true", help="Disable two-strain models on autosomes")
     for field in fields(Rules):
         default = getattr(Rules(), field.name)
         r.add_argument("--" + field.name.replace("_", "-"), default=default, type=type(default))
+    refresh = sub.add_parser("refresh-reports", help="Add interpretation from saved counts without downloads or remapping")
+    source = refresh.add_mutually_exclusive_group(required=True)
+    source.add_argument("--resources")
+    source.add_argument("--panel")
+    refresh.add_argument("--result", required=True, help="Completed sample result directory containing sites.tsv.gz")
     web = sub.add_parser("web", help="Launch the persistent local browser UI")
     web.add_argument("--host", default="127.0.0.1")
     web.add_argument("--port", type=int, default=8501)
@@ -188,6 +195,10 @@ def main(argv=None):
             write_json(root / "config.json", dict(fasta="reference.fa", panel="panel", index="hisat2/genome"))
             emit("reference_ready", "参照FASTA・SNPパネル・HISAT2索引の準備が完了しました")
             print(f"Ready: run --resources {root} --srx SRX... --out results")
+        elif args.command == "refresh-reports":
+            from .reports import refresh_reports
+            panel = resources_paths(args.resources)["panel"] if args.resources else args.panel
+            print(json.dumps(refresh_reports(panel, args.result), ensure_ascii=False, indent=2))
         elif args.command == "run":
             if args.threads < 1:
                 raise ValueError("threads must be positive")
@@ -209,7 +220,7 @@ def main(argv=None):
             for acc in dict.fromkeys(accessions):
                 analyze(acc, paths["fasta"], paths["panel"], paths.get("index"),
                         Path(args.out) / acc, args.threads, rules, not args.single_only,
-                        args.bam, args.bam_assembly, args.download_method)
+                        args.bam, args.bam_assembly, args.download_method, not args.skip_fastp)
         else:
             if not 1 <= args.threads <= 128:
                 raise ValueError("web threads must be between 1 and 128")

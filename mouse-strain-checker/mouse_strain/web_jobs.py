@@ -14,12 +14,13 @@ import traceback
 import uuid
 
 from .jobs import launch, stop
+from .storage import Storage
 
 JOB_ID = re.compile(r"[a-f0-9]{32}")
 ACCESSION = re.compile(r"[SED]RX[0-9]+")
 RESULT_FILES = frozenset({"report.html", "chromosomes.csv", "windows.csv",
                           "candidate_scores.csv", "evidence.json", "sites.tsv.gz",
-                          "complete.json", "ena_runs.json"})
+                          "complete.json", "ena_runs.json", "diagnosis.json", "sex.json", "workflow.json", "cleanup.json"})
 REQUIRED_RESULTS = ("report.html", "chromosomes.csv", "windows.csv",
                     "candidate_scores.csv", "evidence.json")
 
@@ -98,6 +99,7 @@ class Jobs:
         self.queue = queue.Queue()
         self.items, self._events, self._generation, self._processes = {}, {}, {}, {}
         self._closing = False
+        self.storage = Storage(self)
         for path in self.root.glob("*/job.json"):
             if not JOB_ID.fullmatch(path.parent.name) or not path.resolve().is_relative_to(self.root):
                 continue
@@ -272,7 +274,7 @@ class Jobs:
                 self._update(jid, accession=accession, completed_accessions=completed)
                 command = [sys.executable, "-m", "mouse_strain", "run", "--resources",
                            str(self.resources), "--out", str(self.root / jid / "output"),
-                           "--threads", threads, "--srx", accession]
+                           "--threads", threads, "--download-method", "sra", "--srx", accession]
                 if request["single_only"]:
                     command.append("--single-only")
                 self._command(jid, command, "analyze", f"{accession}を解析しています。")

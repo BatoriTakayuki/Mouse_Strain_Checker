@@ -19,8 +19,10 @@
     reference_download: "参照データの取得", reference_extract: "参照FASTAの展開",
     reference_ready: "参照の準備完了", panel: "系統識別用SNPパネルの作成",
     hisat2_index: "ゲノム索引の作成", metadata: "実験・run情報の確認",
-    sra_download: "SRAデータの取得", fastq_convert: "FASTQへの変換",
+    sra_download: "SRAデータの取得（prefetch）", sra_validate: "SRAの検証", fastq_convert: "FASTQへの変換（fasterq-dump）",
+    read_preprocess: "リードの品質処理（fastp）",
     mapping: "配列の整列・BAMの作成", merge: "runのBAM統合", sample_completed: "実験の解析完了",
+    sex_inference: "性別マーカーの評価",
     completed: "完了", paused: "中断", pausing: "中断処理", failed: "処理の失敗",
   };
   const PALETTE = ["#437db1", "#35876a", "#b9719e", "#bc8a38", "#8b78b4", "#4097a4", "#c66b5e", "#839c4d", "#767db0", "#ac7758", "#48968a", "#a86e88"];
@@ -67,19 +69,83 @@
   function buildPalette(sample) {
     const names = new Set();
     for (const row of [...(sample.chromosomes || []), ...(sample.windows || [])]) {
-      for (const model of [row.call, row.candidate]) modelParts(model).forEach(name => names.add(name));
+      for (const model of [row.call, row.background_call]) modelParts(model).forEach(name => names.add(name));
     }
     return new Map([...names].sort().map((name, index) => [name, PALETTE[index] || `hsl(${Math.round(index * 137.5 % 360)} 45% 48%)`]));
   }
 
   function windowAppearance(row, palette) {
     if (!(numeric(row.n_sites) > 0)) return { background: UNOBSERVED, kind: "未観測" };
-    if (!row.call) return { background: UNCALLED, kind: "観測あり・判定保留" };
-    const parts = modelParts(row.call);
+    if (!row.call && !row.background_call) return { background: UNCALLED, kind: "観測あり・判定保留" };
+    const reference = !row.call;
+    const parts = modelParts(row.call || row.background_call);
     const first = palette.get(parts[0]) || "#657d73";
-    if (parts.length < 2) return { background: first, kind: "単一系統モデル" };
     const second = palette.get(parts[1]) || "#a77c9c";
-    return { background: `repeating-linear-gradient(135deg, ${first} 0, ${first} 5px, ${second} 5px, ${second} 10px)`, kind: "2系統モデル" };
+    const background = parts.length < 2 ? first : `repeating-linear-gradient(135deg, ${first} 0, ${first} 5px, ${second} 5px, ${second} 10px)`;
+    if (reference) return { background: `repeating-linear-gradient(45deg, #ffffffcc 0, #ffffffcc 4px, #ffffff66 4px, #ffffff66 7px), ${parts.length < 2 ? `linear-gradient(${first}, ${first})` : background}`, kind: "参考背景（亜系統は未確定）", reference: true };
+    return { background, kind: parts.length < 2 ? "単一系統モデル" : "2系統モデル" };
+  }
+
+  function strictReason(row) {
+    if (row.call) return "—";
+    if (row.reason) return row.reason;
+    const reasons = { ambiguous: "候補間の識別SNP数またはスコア差が基準未満です。", poor_fit: "候補モデルとの適合が基準を満たしません。", insufficient_sites: "評価に使えるSNPが不足しています。", no_observed_snps: "評価に使えるSNPが観測されていません。", regional_discordance: "区間ごとの判定が一致しません。", localized_evidence: "判定を支える区間数が不足しています。" };
+    return reasons[row.status] || "保留理由の詳細は保存された結果を確認してください。";
+  }
+
+  function resultCall(row) {
+    if (row.call) return String(row.call);
+    return row.candidate_options ? "候補：" + row.candidate_options + "（未確定）" : "保留";
+  }
+
+  function candidateSummary(sample) {
+    const groups = new Map();
+    for (const row of sample.chromosomes || []) {
+      if (row.call || !row.candidate_options) continue;
+      const names = groups.get(row.candidate_options) || [];
+      names.push(String(row.chromosome));
+      groups.set(row.candidate_options, names);
+    }
+    return [...groups].map(([options, chromosomes]) => "染色体 " + chromosomes.join(", ") + "：" + options + "（未確定）").join("\n");
+  }
+
+  function sexDescription(sample) {
+    const sex = sample.sex;
+    if (!sex || typeof sex !== "object" || Array.isArray(sex)) return { label: "未評価（旧結果）", reason: "この保存結果には性別の推定がありません。", status: "unavailable", evidence: [], markers: [] };
+    const labels = { male_likely: "オス候補（推定）", female_likely: "メス候補（推定）", inconclusive: "判定保留", unsupported_reference: "未評価（参照未対応）", unavailable: "未評価" };
+    const evidenceLabels = { y_fragments: "Yマーカーの断片数", xist_fragments: "Xist領域の断片数", y_genes_supported: "基準を満たすY遺伝子数", xist_spliced_fragments: "Xist固有の接合をまたぐ断片数", xist_junctions: "観測したXist固有の接合数", control_genes_supported: "基準を満たす対照遺伝子数", control_fragments: "対照マーカー断片数（集計上限あり）", autosomal_fragments: "常染色体の断片数", total_fragments: "全断片数", mapped_fragments: "整列した断片数", y_marker_count: "観測されたYマーカー数", detected_y_markers: "観測されたYマーカー数", y_to_autosome_ratio: "Y / 常染色体の比", xist_to_autosome_ratio: "Xist / 常染色体の比", mapping_quality: "最小マッピング品質", min_mapq: "最小マッピング品質" };
+    const evidence = [];
+    if (sex.evidence && typeof sex.evidence === "object" && !Array.isArray(sex.evidence)) {
+      for (const [key, value] of Object.entries(sex.evidence)) {
+        if (value === null || value === undefined) continue;
+        const readable = typeof value === "number" ? numberText(value, 6) : typeof value === "object" ? JSON.stringify(value) : String(value);
+        evidence.push([evidenceLabels[key] || key, readable]);
+      }
+    }
+    return { label: String(sex.label || labels[sex.status] || "判定保留"), reason: String(sex.reason || "推定理由の詳細は性別推定JSONを確認してください。"), status: sex.status, evidence, markers: Array.isArray(sex.markers) ? sex.markers : [] };
+  }
+
+  function sampleExplanation(sample) {
+    const chromosomes = sample.chromosomes || [];
+    const used = numeric(sample.diagnosis?.summary?.used_sites) ?? chromosomes.reduce((sum, row) => sum + (numeric(row.n_sites) || 0), 0);
+    const strict = chromosomes.filter(row => row.call).length;
+    const background = chromosomes.filter(row => row.background_call).length;
+    let text = "判定に使えるSNP " + numberText(used) + "か所を評価しました。厳密判定 " + strict + "染色体、参考背景の基準を満たすもの " + background + "染色体です。";
+    const unresolvedCount = chromosomes.filter(row => !row.call && row.candidate_options).length;
+    if (unresolvedCount) text += " 未確定の " + unresolvedCount + "染色体は、区別しきれない候補を or で併記します。";
+    if (!strict && used > 0) text += " 厳密判定がすべて保留でも、候補と保留理由から背景の手がかりを確認できます。";
+    const unresolved = sample.diagnosis?.summary?.unresolved_substrain_pairs;
+    for (const pair of Array.isArray(unresolved) ? unresolved : []) {
+      if (Array.isArray(pair?.strains) && pair.strains.includes("C57BL_6J") && pair.strains.includes("C57BL_6NJ")) text += " C57BL/6の6J/6NJは識別不能（識別に使えるSNP " + numberText(pair.diagnostic_sites) + "か所）です。";
+    }
+    if (Array.isArray(sample.workflow?.stages)) text += "\n実行した処理：" + sample.workflow.stages.join(" → ");
+    if (Array.isArray(sample.workflow?.quality_notes)) text += sample.workflow.quality_notes.map(note => "\n" + String(note)).join("");
+    if (sample.cleanup?.scope === "cache") text += "\n中間ファイルは削除済みです。結果と性別評価は保存済みの解析結果です。";
+    return text;
+  }
+
+  function canConfirmCleanup(plan, agreed, busy) {
+    return Boolean(plan && typeof plan.token === "string" && plan.token.length === 64 && plan.files > 0 && agreed === true && !busy);
   }
 
   function selectedStillCurrent(expectedId, expectedGeneration, currentId, currentGeneration) {
@@ -88,12 +154,13 @@
 
   // Export pure validation and display rules for the Node-based regression checks.
   if (typeof document === "undefined") {
-    if (typeof module !== "undefined") module.exports = { parseAccessions, parseThreads, windowAppearance, buildPalette, modelParts, formatBytes, selectedStillCurrent };
+    if (typeof module !== "undefined") module.exports = { parseAccessions, parseThreads, windowAppearance, buildPalette, modelParts, formatBytes, selectedStillCurrent, strictReason, sampleExplanation, windowDescription, resultCall, candidateSummary, sexDescription, canConfirmCleanup };
     return;
   }
 
   const $ = id => document.getElementById(id);
-  const state = { id: null, generation: 0, pollBusy: false, pollAgain: false, job: null, history: [], health: null, healthAt: 0, results: null, resultsKey: null, sample: null, actionBusy: false, submitting: false };
+  const state = { id: null, generation: 0, storageVersion: 0, pollBusy: false, pollAgain: false, job: null, history: [], health: null, healthAt: 0, results: null, resultsKey: null, sample: null, actionBusy: false, submitting: false };
+  const storageState = { busy: false, preview: null };
 
   function element(tag, content, className) {
     const node = document.createElement(tag);
@@ -108,9 +175,9 @@
   function jobUrl(id = state.id) { return "/api/jobs/" + encodeURIComponent(id); }
   function fileUrl(accession, name) { return jobUrl() + "/files/" + encodeURIComponent(accession) + "/" + encodeURIComponent(name); }
 
-  async function api(path, options = {}) {
+  async function api(path, options = {}, timeoutMs = 20000) {
     const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 20000);
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(path, { cache: "no-store", credentials: "same-origin", ...options, signal: controller.signal });
       const body = await response.text();
@@ -125,8 +192,8 @@
     } finally { window.clearTimeout(timer); }
   }
 
-  function post(path, body = {}) {
-    return api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  function post(path, body = {}, timeoutMs = 20000) {
+    return api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, timeoutMs);
   }
 
   function dateText(value) {
@@ -266,6 +333,22 @@
         if (column.key === "status") {
           cell.className = "status-cell " + (row.call ? "status-supported" : "status-hold");
           cell.append(element("span", FINDING[row.status] || row.status || "—"), element("small", row.status || ""));
+        } else if (column.key === "call") {
+          cell.className = "result-call-cell " + (row.call ? "status-supported" : "status-hold");
+          cell.append(element("strong", resultCall(row)));
+        } else if (column.key === "candidate_options") {
+          cell.className = "candidate-options-cell";
+          cell.append(element("strong", row.candidate_options || "—"));
+          if (row.candidate_options && numeric(row.candidate_count) !== null) cell.append(element("small", numberText(row.candidate_count) + (row.call ? "比較候補" : "候補・未確定")));
+          if (row.candidate_options_reason) cell.append(element("small", row.candidate_options_reason));
+        } else if (column.key === "background_call") {
+          cell.className = "background-cell";
+          cell.append(element("strong", row.background_call || (row.background_status ? "保留" : "未評価（旧結果）")));
+          if (row.background_candidate) cell.append(element("small", "候補：" + row.background_candidate));
+          if (row.background_runner_up) cell.append(element("small", "次の背景候補：" + row.background_runner_up));
+          if (row.background_reason) cell.append(element("small", row.background_reason));
+          if (row.background_status) cell.append(element("small", "群間の判別SNP " + numberText(row.background_diagnostic_sites) + " / 差 " + numberText(row.background_margin_per_site, 4) + " / 適合損失 " + numberText(row.background_fit_loss_per_site, 4)));
+          if (row.background_members) cell.append(element("small", "候補内訳：" + row.background_members));
         } else if (column.format) cell.textContent = column.format(row[column.key], row);
         else cell.textContent = row[column.key] === "" || row[column.key] === null || row[column.key] === undefined ? "—" : String(row[column.key]);
         tr.append(cell);
@@ -281,15 +364,26 @@
   }
 
   const EVIDENCE_COLUMNS = [
-    { key: "status", label: "評価状態" }, { key: "call", label: "判定", format: value => value || "保留" },
-    { key: "candidate", label: "最上位候補" }, { key: "n_sites", label: "観測SNP", format: value => numberText(value) },
-    { key: "diagnostic_sites", label: "判別SNP", format: value => numberText(value) },
-    { key: "margin_per_site", label: "スコア差/SNP", format: value => numberText(value, 4) },
-    { key: "fit_loss_per_site", label: "適合損失/SNP", format: value => numberText(value, 4) },
+    { key: "status", label: "厳密評価" }, { key: "call", label: "結果（未確定なら候補）" },
+    { key: "candidate_options", label: "絞り込んだ候補と理由" },
+    { key: "background_call", label: "参考背景（6J/6NJをまとめた比較）" },
+    { key: "reason", label: "厳密判定の保留理由", format: (_, row) => strictReason(row) },
+    { key: "candidate", label: "厳密比較の最上位候補" }, { key: "n_sites", label: "使えるSNP", format: value => numberText(value) },
+    { key: "diagnostic_sites", label: "厳密比較の判別SNP", format: value => numberText(value) },
+    { key: "margin_per_site", label: "厳密比較の差/SNP", format: value => numberText(value, 4) },
+    { key: "fit_loss_per_site", label: "厳密比較の適合損失/SNP", format: value => numberText(value, 4) },
   ];
 
   function windowDescription(row) {
-    return row.chromosome + ":" + numberText(row.start) + "–" + numberText(row.end) + "　" + (FINDING[row.status] || row.status) + "\n判定：" + (row.call || "保留") + "　最上位候補：" + (row.candidate || "—") + "　観測SNP：" + numberText(row.n_sites) + "　判別SNP：" + numberText(row.diagnostic_sites);
+    let text = row.chromosome + ":" + numberText(row.start) + "–" + numberText(row.end) + "　" + (FINDING[row.status] || row.status) + "\n厳密判定：" + (row.call || "保留") + "　最上位候補：" + (row.candidate || "—") + "　使えるSNP：" + numberText(row.n_sites) + "　判別SNP：" + numberText(row.diagnostic_sites);
+    if (!row.call) text += "\n厳密判定の保留理由：" + strictReason(row);
+    if (!row.call && row.candidate_options) text += "\n候補：" + row.candidate_options + "（未確定）" + (row.candidate_options_reason ? "\n候補の選定理由：" + row.candidate_options_reason : "");
+    text += "\n参考背景：" + (row.background_call || (row.background_status ? "保留" : "未評価（旧結果）"));
+    if (row.background_candidate) text += "　候補：" + row.background_candidate;
+    if (row.background_runner_up) text += "　次の背景候補：" + row.background_runner_up;
+    if (row.background_reason) text += "\n参考背景の評価理由：" + row.background_reason;
+    if (row.background_status) text += "　群間の判別SNP：" + numberText(row.background_diagnostic_sites) + "　差/SNP：" + numberText(row.background_margin_per_site, 4);
+    return text;
   }
 
   function renderBars(sample) {
@@ -303,6 +397,7 @@
     legendItem("SNP未観測", UNOBSERVED);
     legendItem("観測あり・判定保留", UNCALLED);
     legendItem("2系統モデル", "repeating-linear-gradient(135deg,#657d73 0,#657d73 5px,#a9bba3 5px,#a9bba3 10px)");
+    legendItem("参考背景（淡色・細い斜線）", windowAppearance({ n_sites: 1, background_call: "参考" }, new Map()).background);
     $("legend").replaceChildren(legend);
     const grouped = new Map();
     for (const chromosome of sample.chromosomes || []) grouped.set(String(chromosome.chromosome), []);
@@ -320,6 +415,7 @@
       rows.sort((a, b) => Number(a.start) - Number(b.start));
       for (const row of rows) {
         const appearance = windowAppearance(row, palette), cell = element("button", null, "window-cell");
+        if (appearance.reference) cell.classList.add("reference-window");
         cell.type = "button";
         cell.style.flexGrow = String(Math.max(1, (numeric(row.end) || 0) - (numeric(row.start) || 0) + 1));
         cell.style.flexBasis = "0";
@@ -342,14 +438,30 @@
     state.sample = sample.accession;
     const chromosomes = sample.chromosomes || [], windows = sample.windows || [], scores = sample.scores || [];
     const metrics = [
-      [chromosomes.filter(row => row.call).length, "判定のある染色体"],
-      [chromosomes.length, "評価した染色体"],
-      [chromosomes.reduce((sum, row) => sum + (numeric(row.n_sites) || 0), 0), "観測SNP"],
+      [chromosomes.filter(row => row.call).length, "厳密判定のある染色体"],
+      [chromosomes.filter(row => row.background_call).length, "参考背景の基準を満たす染色体"],
+      [numeric(sample.diagnosis?.summary?.used_sites) ?? chromosomes.reduce((sum, row) => sum + (numeric(row.n_sites) || 0), 0), "判定に使えるSNP"],
       [windows.filter(row => numeric(row.n_sites) > 0).length, "観測のある窓"],
     ];
     const summary = document.createDocumentFragment();
     for (const [value, label] of metrics) { const node = element("div"); node.append(element("strong", numberText(value)), document.createTextNode(label)); summary.append(node); }
     $("summary").replaceChildren(summary);
+    setText("result-explanation", sampleExplanation(sample));
+    const candidateText = candidateSummary(sample);
+    setText("candidate-summary", candidateText);
+    $("candidate-summary-panel").hidden = !candidateText;
+    const sex = sexDescription(sample);
+    setText("sex-label", sex.label);
+    setText("sex-reason", sex.reason);
+    $("sex-label").className = "sex-label " + (["male_likely", "female_likely"].includes(sex.status) ? "sex-supported" : "sex-hold");
+    const sexEvidence = document.createDocumentFragment();
+    for (const [label, value] of sex.evidence) sexEvidence.append(element("dt", label), element("dd", value));
+    $("sex-evidence").replaceChildren(sexEvidence);
+    $("sex-details").hidden = !sex.evidence.length && !sex.markers.length;
+    renderTable("sex-markers-table", sex.markers, [{ key: "gene", label: "マーカー遺伝子" }, { key: "chromosome", label: "染色体" }, { key: "start", label: "開始", format: value => numberText(value) }, { key: "end", label: "終了", format: value => numberText(value) }, { key: "fragments", label: "観測断片数", format: (value, row) => (row.count_capped ? "≥ " : "") + numberText(value) }]);
+    const assumption = sample.diagnosis?.reference_assumption;
+    setText("reference-assumption", assumption ? "参照の前提：" + (sample.diagnosis.added_reference || "追加候補（既定はC57BL_6J）") + "は参照配列のREFアレルと仮定した候補で、実測遺伝型ではありません。 " + assumption : "");
+    $("reference-assumption").hidden = !assumption;
     const count = sample.counts || {};
     const limited = (count.chromosomes > chromosomes.length || count.windows > windows.length || count.scores > scores.length || state.results?.truncated);
     setText("result-limit", limited ? "画面の表は各1000行までです。上の件数とバーは取得できた行の範囲を表示しています。省略分を含む全データはCSVをダウンロードしてください。" : "画面の表は各1000行まで表示します。元データの全行はCSVで保存できます。");
@@ -358,7 +470,7 @@
     renderTable("windows-table", windows, [{ key: "chromosome", label: "染色体" }, { key: "start", label: "開始", format: value => numberText(value) }, { key: "end", label: "終了", format: value => numberText(value) }, ...EVIDENCE_COLUMNS]);
     renderTable("scores-table", scores, [{ key: "chromosome", label: "染色体" }, { key: "rank", label: "順位", format: value => numberText(value) }, { key: "model", label: "候補モデル" }, { key: "n_sites", label: "観測SNP", format: value => numberText(value) }, { key: "mean_log_score", label: "平均対数スコア", format: value => numberText(value, 4) }, { key: "fit_loss_per_site", label: "適合損失/SNP", format: value => numberText(value, 4) }]);
     const downloads = document.createDocumentFragment();
-    const names = { "chromosomes.csv": "染色体別 CSV", "windows.csv": "固定窓 CSV", "candidate_scores.csv": "候補スコア CSV", "report.html": "HTMLレポート", "evidence.json": "解析条件・根拠 JSON", "sites.tsv.gz": "観測SNP TSV.gz", "ena_runs.json": "run情報 JSON", "mpileup.log": "SNP取得ログ", "complete.json": "完了情報 JSON" };
+    const names = { "chromosomes.csv": "染色体別 CSV", "windows.csv": "固定窓 CSV", "candidate_scores.csv": "候補スコア CSV", "report.html": "HTMLレポート", "evidence.json": "解析条件・根拠 JSON", "diagnosis.json": "保留理由・背景評価 JSON", "sex.json": "性別推定・根拠 JSON", "workflow.json": "RNA-seq処理・品質管理 JSON", "cleanup.json": "中間ファイル削除記録 JSON", "sites.tsv.gz": "観測SNP TSV.gz", "ena_runs.json": "run情報 JSON", "mpileup.log": "SNP取得ログ", "complete.json": "完了情報 JSON" };
     for (const file of sample.files || []) {
       const name = typeof file === "string" ? file : file.name;
       if (!name) continue;
@@ -423,6 +535,7 @@
     state.pollBusy = true;
     state.pollAgain = false;
     const id = state.id, generation = state.generation;
+    const storageVersion = state.storageVersion;
     try {
       const historyPromise = api("/api/jobs");
       const healthNeeded = !state.health || Date.now() - state.healthAt > 30000;
@@ -432,7 +545,7 @@
       const errors = [];
       if (jobsResult.status === "fulfilled") {
         const jobs = Array.isArray(jobsResult.value) ? jobsResult.value : jobsResult.value.jobs || [];
-        renderHistory(jobs);
+        if (storageVersion === state.storageVersion) renderHistory(jobs);
       } else errors.push(jobsResult.reason);
       if (healthResult.status === "fulfilled" && healthResult.value) { renderHealth(healthResult.value); state.healthAt = Date.now(); }
       else if (healthResult.status === "rejected") errors.push(healthResult.reason);
@@ -499,7 +612,95 @@
     finally { state.actionBusy = false; if (state.job) updateActionButtons(state.job); poll(); }
   }
 
+  function renderStorage(data) {
+    setText("storage-space", "ディスク空き " + formatBytes(data.free_bytes) + " / " + formatBytes(data.total_bytes));
+    const head = element("thead"), header = element("tr"), body = element("tbody");
+    for (const label of ["解析", "状態", "全体の容量", "削除できる中間ファイル", "操作"]) header.append(element("th", label));
+    head.append(header);
+    for (const row of data.jobs || []) {
+      const tr = element("tr"), title = element("td"), actions = element("td", null, "storage-actions");
+      const select = element("button", row.accessions.join(", ") || "参照準備", "text-button");
+      select.type = "button"; select.addEventListener("click", () => selectJob(row.id));
+      title.append(select, element("small", row.id.slice(0, 12)));
+      tr.append(title, element("td", STATUS[row.status] || row.status), element("td", formatBytes(row.total_bytes)), element("td", formatBytes(row.cache_bytes)));
+      for (const [scope, label, size] of [["cache", "中間ファイルを削除", row.cache_bytes], ["job", "解析全体を削除", row.total_bytes]]) {
+        const button = element("button", label, scope === "job" ? "danger-outline" : "secondary");
+        button.type = "button"; button.disabled = !row.deletable || !(size > 0);
+        button.addEventListener("click", () => previewCleanup(scope, row.id)); actions.append(button);
+      }
+      if (row.reason) actions.append(element("small", row.reason));
+      tr.append(actions); body.append(tr);
+    }
+    $("storage-table").replaceChildren(head, body);
+    const reference = data.reference || {};
+    setText("reference-storage", (reference.deletable ? "削除対象 " + formatBytes(reference.bytes) : "削除対象なし、または現在は削除できません。") + (reference.reason ? " " + reference.reason : ""));
+    $("cleanup-reference").disabled = !reference.deletable;
+  }
+
+  async function loadStorage() {
+    if (storageState.busy) return;
+    storageState.busy = true; $("refresh-storage").disabled = true; setText("storage-error", "");
+    try { renderStorage(await api("/api/storage", {}, 60000)); }
+    catch (error) { setError("storage-error", error); }
+    finally { storageState.busy = false; $("refresh-storage").disabled = false; }
+  }
+
+  async function previewCleanup(scope, jobId = null) {
+    if (storageState.busy) return;
+    storageState.busy = true; setText("storage-error", ""); setText("storage-feedback", "");
+    try {
+      const request = jobId ? { scope, job_id: jobId } : { scope };
+      const plan = await post("/api/storage/preview", request, 60000);
+      storageState.preview = plan;
+      setText("cleanup-target", plan.title + "：" + formatBytes(plan.bytes) + "、" + numberText(plan.files) + "ファイル");
+      setText("cleanup-effect", plan.effect); setText("cleanup-error", "");
+      $("cleanup-paths").replaceChildren(...(plan.paths || []).map(path => element("li", path)));
+      $("cleanup-agree").checked = false; $("confirm-cleanup").disabled = true;
+      $("cleanup-dialog").showModal();
+    } catch (error) { setError("storage-error", error); }
+    finally { storageState.busy = false; }
+  }
+
+  async function executeCleanup(event) {
+    event.preventDefault();
+    const plan = storageState.preview;
+    if (!canConfirmCleanup(plan, $("cleanup-agree").checked, storageState.busy)) return;
+    storageState.busy = true; $("confirm-cleanup").disabled = true; $("cancel-cleanup").disabled = true;
+    setText("confirm-cleanup", "削除しています…");
+    state.generation += 1; state.storageVersion += 1;
+    try {
+      const result = await post("/api/storage/cleanup", { token: plan.token, confirm: true }, 300000);
+      setText("storage-feedback", result.message + " 削除したファイル容量：" + formatBytes(result.bytes));
+      if (plan.job_id === state.id) {
+        state.results = null; state.resultsKey = null; $("results").hidden = true;
+        if (plan.scope === "job") {
+          state.id = null; state.job = null; state.sample = null;
+          $("job").hidden = true; $("empty").hidden = false;
+          history.replaceState(null, "", location.pathname + location.search);
+        }
+      }
+      $("cleanup-dialog").close();
+    } catch (error) {
+      storageState.preview = null; setError("cleanup-error", error);
+      state.resultsKey = null;
+      if (plan.job_id === state.id) { state.results = null; $("results").hidden = true; }
+    } finally {
+      storageState.busy = false; $("cancel-cleanup").disabled = false;
+      setText("confirm-cleanup", "削除する");
+      $("confirm-cleanup").disabled = true; state.healthAt = 0;
+      await loadStorage(); poll();
+    }
+  }
+
   $("analysis-form").addEventListener("submit", event => { event.preventDefault(); submit("analyze"); });
+  $("storage-panel").addEventListener("toggle", () => { if ($("storage-panel").open) loadStorage(); });
+  $("refresh-storage").addEventListener("click", loadStorage);
+  $("cleanup-reference").addEventListener("click", () => previewCleanup("reference_downloads"));
+  $("cleanup-form").addEventListener("submit", executeCleanup);
+  $("cleanup-agree").addEventListener("change", () => { $("confirm-cleanup").disabled = !canConfirmCleanup(storageState.preview, $("cleanup-agree").checked, storageState.busy); });
+  $("cancel-cleanup").addEventListener("click", () => $("cleanup-dialog").close());
+  $("cleanup-dialog").addEventListener("close", () => { storageState.preview = null; });
+  $("cleanup-dialog").addEventListener("cancel", event => { if (storageState.busy) event.preventDefault(); });
   $("setup").addEventListener("click", () => submit("setup"));
   $("pause").addEventListener("click", () => jobAction("pause"));
   $("resume").addEventListener("click", () => jobAction("resume"));

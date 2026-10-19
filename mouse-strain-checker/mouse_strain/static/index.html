@@ -14,6 +14,13 @@
   <section class="intro"><span class="eyebrow">RNA-SEQ / MOUSE STRAIN</span><h1>系統の手がかりを、<br class="mobile-break">染色体から。</h1><p>SRX番号を入力すると、参照の準備から配列の取得・整列・既知SNPの評価まで自動で進めます。</p><p class="notice">RNAで観測した領域に限る暫定推定です。DNA全体の系統や交雑率、F1を確定するものではありません。</p></section>
   <div id="health" class="health" role="status">解析環境を確認しています…</div>
   <p id="connection" class="error connection" role="status" aria-live="polite" hidden></p>
+  <details id="storage-panel" class="card storage-manager"><summary>ストレージ管理・ファイル削除</summary>
+    <div class="section-top"><p id="storage-space" class="hint">容量を確認してから削除できます。</p><button id="refresh-storage" type="button" class="secondary">容量を更新</button></div>
+    <p class="hint">「中間ファイル」はFASTQ・SRA・BAM・一時ファイルを削除し、結果とfastpレポートを保持します。「解析全体」は結果と履歴も削除します。実行中・待機中の解析は削除できません。</p>
+    <div class="scroll"><table id="storage-table"><caption class="sr-only">解析ごとの保存容量と削除操作</caption></table></div>
+    <div class="reference-cleanup"><strong>参照作成に使ったダウンロード元</strong><p id="reference-storage" class="hint"></p><button id="cleanup-reference" type="button" class="secondary" disabled>参照の元ファイルを削除</button><p class="hint">解析に必要な展開済み参照FASTA・SNPパネル・HISAT2索引は保持します。</p></div>
+    <p id="storage-feedback" role="status" aria-live="polite"></p><p id="storage-error" class="error" role="alert"></p>
+  </details>
   <div class="workspace">
     <aside>
       <section class="card form-card"><div class="section-heading"><span class="step-number">01</span><h2>新しい解析</h2></div>
@@ -23,7 +30,7 @@
           <p id="srx-hint" class="hint">SRX / ERX / DRXを改行・カンマ・空白で区切って入力。重複を除いて30件まで。各実験の全runをまとめて解析します。</p>
           <details><summary>解析オプション</summary>
             <label for="threads">CPUスレッド数</label><input id="threads" name="threads" type="number" min="1" max="128" step="1" inputmode="numeric" placeholder="環境に合わせて自動設定" aria-describedby="threads-hint">
-            <p id="threads-hint" class="hint">1〜128。空欄ならサーバーの既定値を使います。中断後の再開でも同じ設定を使います。</p>
+            <p id="threads-hint" class="hint">1〜128。空欄ならサーバーの既定値を使います。FASTQ変換と整列に使用し、fastpは最大16です。中断後の再開でも同じ設定を使います。</p>
             <label class="check-option"><input id="single-only" name="single_only" type="checkbox"><span>単一系統モデルだけで評価する</span></label>
             <p class="hint">通常は2系統モデルも比較します。X・Y・ミトコンドリアは単一系統モデルで評価します。</p>
             <label class="check-option"><input id="pause-after-reference" name="pause_after_reference" type="checkbox"><span>参照の準備が終わったら中断する</span></label>
@@ -47,8 +54,9 @@
         <details id="log-panel"><summary>処理ログ</summary><pre id="log">ログを読み込んでいます…</pre><a id="log-download" download>ログ全体をダウンロード</a></details>
       </section>
       <div id="results" hidden>
-        <section class="card result-intro"><div class="section-top"><div><span class="eyebrow">02 / RESULTS</span><h2>RNAで観測した系統の手がかり</h2></div><div class="sample-picker"><label for="sample-select">表示する実験</label><select id="sample-select"></select></div></div><div id="summary" class="summary"></div><p class="result-notice">「判定」は評価条件を満たしたモデル、「最上位候補」は条件を満たさない場合も含む比較上位モデルです。判定保留は、特定系統を否定する意味ではありません。</p><p id="result-limit" class="hint"></p></section>
-        <section class="card"><div class="section-top"><h2>染色体ごとの固定窓</h2><span class="muted">RNA上の観測領域</span></div><p class="hint">各染色体を同じ幅に正規化しています。区間を選ぶと詳細を表示します。2系統モデルの斜線は配合率を示しません。</p><div id="legend" class="legend"></div><div id="chromosome-bars" class="chromosome-bars"></div><p id="window-detail" class="window-detail" role="status" aria-live="polite">区間を選択して根拠を確認してください。</p></section>
+        <section class="card result-intro"><div class="section-top"><div><span class="eyebrow">02 / RESULTS</span><h2>RNAで観測した系統の手がかり</h2></div><div class="sample-picker"><label for="sample-select">表示する実験</label><select id="sample-select"></select></div></div><div id="summary" class="summary"></div><p id="result-explanation" class="result-explanation"></p><div id="candidate-summary-panel" class="candidate-summary-panel" hidden><h3>未確定の候補（染色体別）</h3><p id="candidate-summary"></p></div><p class="result-notice">候補を1つに決められない場合は「XXX or YYY（未確定）」と併記します。「厳密判定」は亜系統を含む候補同士の比較です。「参考背景」はC57BL/6の6J・6NJを1群にまとめ、別の背景候補と比較した結果です。保留理由と候補を絞った理由も表示します。候補の併記は確定判定を意味しません。</p><p id="reference-assumption" class="reference-assumption" hidden></p><p id="result-limit" class="hint"></p></section>
+        <section class="card sex-card"><h2>性別（RNAからの推定）</h2><strong id="sex-label" class="sex-label">未評価（旧結果）</strong><p id="sex-reason" class="sex-reason"></p><p class="hint">Y染色体のマーカーとXistの発現から推定します。発現量や細胞の状態によって、判定を保留する場合があります。</p><details id="sex-details" hidden><summary>性別推定の根拠</summary><dl id="sex-evidence" class="sex-evidence"></dl><div class="scroll"><table id="sex-markers-table"><caption class="sr-only">性別マーカーごとのRNA観測断片数</caption></table></div></details></section>
+        <section class="card"><div class="section-top"><h2>染色体ごとの固定窓</h2><span class="muted">RNA上の観測領域</span></div><p class="hint">各染色体を同じ幅に正規化しています。濃い色は厳密判定、淡色・細い斜線は参考背景の基準を満たした区間です。区間を選ぶと保留理由と候補を表示します。斜線は配合率を示しません。</p><div id="legend" class="legend"></div><div id="chromosome-bars" class="chromosome-bars"></div><p id="window-detail" class="window-detail" role="status" aria-live="polite">区間を選択して根拠を確認してください。</p></section>
         <section class="card"><h2>染色体ごとの判定と根拠</h2><div class="scroll"><table id="chromosomes-table"><caption class="sr-only">染色体ごとの判定、最上位候補、SNP数と評価指標</caption></table></div><details><summary>判定・指標の読み方</summary><dl class="status-key"><dt>単一系統候補を支持</dt><dd>観測したSNPが単一系統候補を支持しています。</dd><dt>2系統モデルを支持</dt><dd>混在やヘテロ接合などと整合するモデルです。F1や交雑の確定ではありません。</dd><dt>区間間で不一致 / 根拠が局所的</dt><dd>染色体を単一の判定で代表できないため保留しています。</dd><dt>判別困難 / モデル適合不良 / SNP不足 / SNP未観測</dt><dd>候補間の区別や判定に必要な根拠が足りない場合などに表示します。</dd></dl><p>判別SNP数は最上位と次点のモデルを区別できる観測SNP数です。スコア差/SNPと適合損失/SNPは比較指標で、確率や信頼度ではありません。X・Y・ミトコンドリアは単一系統モデルで評価します。</p></details></section>
         <section class="card"><h2>評価データの詳細</h2><details open><summary>固定窓ごとの判定</summary><div class="scroll"><table id="windows-table"><caption class="sr-only">固定窓ごとの判定と根拠</caption></table></div></details><details><summary>候補モデルのスコア</summary><p class="hint">平均対数スコアが高いモデルほど、この比較では上位です。候補の確率やDNA全体の由来を表しません。</p><div class="scroll"><table id="scores-table"><caption class="sr-only">染色体別の候補モデル比較</caption></table></div></details></section>
         <section class="card"><h2>結果をダウンロード</h2><p class="hint">CSVは全行を含みます。HTMLレポートや観測SNPのデータも保存できます。</p><div id="downloads" class="downloads"></div></section>
@@ -56,6 +64,12 @@
     </div>
   </div>
 </main>
+<dialog id="cleanup-dialog" aria-labelledby="cleanup-title"><form id="cleanup-form">
+  <h2 id="cleanup-title">ファイル削除の確認</h2><p id="cleanup-target"></p><p id="cleanup-effect" class="result-notice"></p>
+  <details><summary>削除対象のファイル例（最大15件）</summary><ul id="cleanup-paths"></ul></details>
+  <label class="check-option"><input id="cleanup-agree" type="checkbox" required><span>対象と容量を確認しました。削除したファイルは元に戻せないことを理解しています。</span></label>
+  <p id="cleanup-error" class="error" role="alert"></p><div class="job-actions"><button id="cancel-cleanup" type="button" class="secondary">キャンセル</button><button id="confirm-cleanup" type="submit" class="danger" disabled>削除する</button></div>
+</form></dialog>
 <footer>Mouse Strain Checker <span>RNAで読めた既知SNPと候補モデルに基づく探索的評価</span></footer>
 </body>
 </html>

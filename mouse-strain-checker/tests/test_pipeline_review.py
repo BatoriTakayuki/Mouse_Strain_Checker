@@ -134,13 +134,19 @@ class PipelineReviewTests(unittest.TestCase):
             (directory / f"SRR1_{mate}.fastq").write_text("old", encoding="utf-8")
         (directory / "sra_reads.json").write_text("{", encoding="utf-8")
         def fake_run(command):
+            if command[0] == "prefetch":
+                accession_directory = Path(command[-1])
+                accession_directory.mkdir(parents=True)
+                (accession_directory / "SRR1.sra").write_text("sra")
             if command[0] == "fasterq-dump":
+                output = Path(command[command.index("-O") + 1])
                 for mate in (1, 2):
-                    (directory / f"SRR1_{mate}.fastq").write_text("new", encoding="utf-8")
+                    (output / f"SRR1_{mate}.fastq").write_text("new", encoding="utf-8")
         with patch("mouse_strain.pipeline.require_tools"), \
+             patch("mouse_strain.pipeline.tool_version", return_value="fixture"), \
              patch("mouse_strain.pipeline.run", side_effect=fake_run) as external:
             paths = get_reads(self.reads_row([]), directory, 1, "sra")
-        self.assertEqual(external.call_count, 2)
+        self.assertEqual(external.call_count, 3)
         self.assertTrue(all(path.read_text(encoding="utf-8") == "new" for path in paths))
 
     def test_invalid_pipeline_inputs_do_not_create_outputs(self):

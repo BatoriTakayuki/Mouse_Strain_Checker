@@ -99,12 +99,39 @@ class Summary:
         a, b = self.models[model]
         return self.strains[a] if a == b else self.strains[a] + " + " + self.strains[b]
 
+    def _candidate_options(self, rules, order):
+        """Ranked panel models not separated from the best by existing rules.
+
+        A model must fit in its own right. Rejecting it also requires both
+        enough observed diagnostic sites and enough score separation from the
+        best model. These are reference alternatives, not a confidence set or
+        a claim that the true strain is included in the panel.
+        """
+        top = order[0]
+        a, b = self.models[top]
+        options = []
+        for index in order:
+            loss = max(0.0, (self.saturated - self.scores[index]) / self.n)
+            if loss > rules.max_fit_loss:
+                continue
+            c, d = self.models[index]
+            diagnostic = sum(n for g, n in self.patterns.items()
+                             if int(g[a]) + int(g[b]) != int(g[c]) + int(g[d]))
+            margin = (self.scores[top] - self.scores[index]) / self.n
+            if index == top or diagnostic < rules.min_diagnostic or margin < rules.min_margin:
+                options.append(self.name(index))
+        return options
+
     def result(self, rules, window=False):
         row = dict(status="insufficient_sites", call="", candidate="", runner_up="",
                    n_sites=self.n, diagnostic_sites=0, margin_per_site=None,
-                   fit_loss_per_site=None, first_snp=self.first, last_snp=self.last)
+                   fit_loss_per_site=None, first_snp=self.first, last_snp=self.last,
+                   reason="", candidate_options="", candidate_count=0,
+                   candidate_options_reason="")
         if not self.n:
             row["status"] = "no_observed_snps"
+            row["reason"] = "RNA上で有効なパネルSNPを観測できませんでした。"
+            row["candidate_options_reason"] = "有効なSNPがないため、候補を絞れません。"
             return row
         order = sorted(range(len(self.models)), key=lambda i: -self.scores[i])
         top, second = order[:2]
@@ -118,14 +145,31 @@ class Summary:
                    diagnostic_sites=diagnostic, margin_per_site=margin,
                    fit_loss_per_site=loss)
         if self.n < (rules.min_window_sites if window else rules.min_sites):
+            row["reason"] = f"有効SNPが{self.n}か所で、基準の{rules.min_window_sites if window else rules.min_sites}か所に届きません。"
+            row["candidate_options_reason"] = "有効SNP数が基準未満のため、候補を絞れません。"
             return row
         if loss > rules.max_fit_loss:
             row["status"] = "poor_fit"
+            row["reason"] = f"候補モデルの適合損失/SNPが{loss:.4g}で、上限{rules.max_fit_loss:g}を超えています。"
+            row["candidate_options_reason"] = "最上位モデルも適合度の基準を満たさないため、候補を絞れません。"
         elif diagnostic < rules.min_diagnostic or margin < rules.min_margin:
             row["status"] = "ambiguous"
+            reasons = []
+            if diagnostic == 0:
+                reasons.append("最上位と次点は観測したSNPでは同型で、区別できません（識別SNP 0か所）")
+            elif diagnostic < rules.min_diagnostic:
+                reasons.append(f"最上位と次点の識別SNPが{diagnostic}か所で、基準{rules.min_diagnostic}か所未満です")
+            if margin < rules.min_margin:
+                reasons.append(f"スコア差/SNPが{margin:.4g}で、基準{rules.min_margin:g}未満です")
+            row["reason"] = "。".join(reasons) + "。"
         else:
             row["status"] = "candidate_supported" if a == b else "mixed_or_heterozygous"
             row["call"] = self.name(top)
+            row["reason"] = "有効SNP数・識別SNP数・スコア差・適合度の既定基準を満たしました。"
+        if loss <= rules.max_fit_loss:
+            options = self._candidate_options(rules, order)
+            row.update(candidate_options=" or ".join(options), candidate_count=len(options),
+                       candidate_options_reason="候補パネル内で適合度を満たし、最上位との差または識別SNP数が区別の基準に届かないモデルをスコア順に示します。確率や系統の確定を示すものではありません。")
         return row
 
     def rankings(self):
